@@ -199,7 +199,9 @@
       btn.textContent = "购买 " + def.cost + " 粮草";
       btn.disabled = grain < def.cost || freeSlot() < 0;
       btn.addEventListener("click", function () { buyFromShop(item.type, i); });
-      div.innerHTML = def.name + "（1 级）";
+      // 卡片三行：名称 / 等级 / 购买（粮草）
+      div.innerHTML = "<div class='sc-name'>" + def.name + "</div>" +
+                      "<div class='sc-lv'>1 级</div>";
       div.appendChild(btn);
       shopItems.appendChild(div);
     }
@@ -848,6 +850,7 @@
     requestAnimationFrame(loop);
   }
 })();
+
 
 
 

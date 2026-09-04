@@ -88,6 +88,8 @@ canvas#gameCanvas {
   flex-direction: column;
   justify-content: center;
 }
+.shop-card .sc-name { font-size: 16px; }
+.shop-card .sc-lv { color: #ffd97a; font-size: 13px; line-height: 1.3; }
 .shop-card button {
   margin-top: 4px;
   font-family: inherit;
@@ -199,4 +201,5 @@ canvas#gameCanvas {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 
