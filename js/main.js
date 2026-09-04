@@ -564,6 +564,8 @@
   };
 
   // ---------- 启动 ----------
+  buildCards(); // 生成部署栏卡片（很重要，之前漏调用导致部署栏空白）
+
   const query = new URLSearchParams(window.location.search);
   const simulateSec = parseFloat(query.get("simulate") || "0");
 
@@ -594,4 +596,5 @@
     requestAnimationFrame(loop);
   }
 })();
+
 
