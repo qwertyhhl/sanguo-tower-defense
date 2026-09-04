@@ -13,6 +13,11 @@
     <span class="hud-item">粮草：<b id="hud-grain">100</b></span>
     <span class="hud-item">人口：<b id="hud-pop">0/20</b></span>
     <span class="hud-item">状态：<b id="hud-phase">准备中</b></span>
+    <select id="sel-diff" title="难度">
+      <option value="easy">简单</option>
+      <option value="normal" selected>普通</option>
+      <option value="hard">困难</option>
+    </select>
     <button id="btn-pause" type="button">暂停</button>
     <button id="btn-speed" type="button">速度 ×1</button>
     <button id="btn-start" type="button">开始守城</button>
@@ -42,9 +47,11 @@
 
   <script src="js/config.js"></script>
   <script src="js/map.js"></script>
+  <script src="js/sound.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
+
 
 
 

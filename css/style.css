@@ -44,6 +44,16 @@ body {
 #btn-start:hover:enabled { background: #a93226; }
 #btn-start:disabled { opacity: 0.6; cursor: default; }
 
+#sel-diff {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 2px 6px;
+  background: #241a0e;
+  color: #ffe9b0;
+  border: 1px solid #8c6d3f;
+  border-radius: 6px;
+}
+
 #btn-pause, #btn-speed {
   font-family: inherit;
   font-size: 14px;
@@ -215,6 +225,7 @@ canvas#gameCanvas {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 
 
 

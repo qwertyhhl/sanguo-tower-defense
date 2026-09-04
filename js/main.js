@@ -19,6 +19,7 @@
   let prepTimer = 0;
   let paused = false;
   let speed = 1;
+  let diffKey = "normal"; // 当前难度
   let enemies = [];
   let buildings = [];
   let soldiers = [];
@@ -39,6 +40,7 @@
   const btnStart = document.getElementById("btn-start");
   const btnPause = document.getElementById("btn-pause");
   const btnSpeed = document.getElementById("btn-speed");
+  const selDiff = document.getElementById("sel-diff");
   const shopItems = document.getElementById("shop-items");
   const btnRefresh = document.getElementById("btn-refresh");
   const btnLock = document.getElementById("btn-lock");
@@ -65,6 +67,7 @@
   function fieldCount() { return buildings.length + soldiers.length; }
   function freeSlot() { for (let i = 0; i < inventory.length; i++) if (!inventory[i]) return i; return -1; }
   function activePhase() { return phase === "ready" || phase === "battle" || phase === "between"; }
+  function diffConf() { return CONFIG.difficulties[diffKey] || CONFIG.difficulties.normal; }
   function findPathIndex(col, row) {
     for (let i = 0; i < CONFIG.path.length; i++) {
       if (CONFIG.path[i].c === col && CONFIG.path[i].r === row) return i;
@@ -232,6 +235,7 @@
     inventory[idx] = { type: type, level: 1 };
     shopStock[index] = null;
     setHint("已购入 " + def.name + " → 放入背包第 " + (idx + 1) + " 格");
+    if (window.SFX) SFX.play("buy");
     renderInventory();
     renderShop();
     updateHud();
@@ -304,6 +308,7 @@
       removeDragSource();
       grain += value;
       setHint("已出售 " + sdef.name + " Lv" + d.level + " → +" + value + " 粮草");
+      if (window.SFX) SFX.play("coin");
       updateHud();
       clearDrag();
       return;
@@ -320,6 +325,7 @@
         removeDragSource();
         inventory[idx] = { type: d.type, level: d.level + 1 };
         setHint("合成成功！" + unitDef(d.type).name + " → Lv" + (d.level + 1));
+        if (window.SFX) SFX.play("merge");
         renderInventory(); updateHud();
         clearDrag(); return;
       }
@@ -349,6 +355,7 @@
         removeFieldUid(tgt.uid);
         addUnitToField(d.type, d.level + 1, cell.c, cell.r);
         setHint("合成成功！" + unitDef(d.type).name + " → Lv" + (d.level + 1));
+        if (window.SFX) SFX.play("merge");
         updateHud();
         clearDrag(); return;
       }
@@ -390,7 +397,8 @@
   }
   function arriveGate(e) {
     gateHp -= e.isBoss ? 10 : 1;
-    if (gateHp <= 0) { gateHp = 0; phase = "over"; updateHud(); }
+    if (window.SFX) SFX.play("alarm");
+    if (gateHp <= 0) { gateHp = 0; phase = "over"; if (window.SFX) SFX.play("lose"); updateHud(); }
   }
   function damageEnemy(e, dmg) {
     e.hp -= dmg;
@@ -422,7 +430,10 @@
     return best;
   }
 
-  function waveCount(n) { return CONFIG.waves.baseCount + (n - 1) * CONFIG.waves.countPerWave; }
+  function waveCount(n) {
+    const dc = diffConf();
+    return Math.max(1, Math.floor((CONFIG.waves.baseCount + (n - 1) * CONFIG.waves.countPerWave) * dc.countMul));
+  }
 
   function beginWave(n) {
     waveIndex = n;
@@ -431,14 +442,16 @@
     waveBossPending = (n % CONFIG.waves.bossEvery === 0);
     if (waveBossPending) waveToSpawn += 1;
     waveSpawnTimer = 0.3;
-    waveHpMul = 1 + CONFIG.waves.hpGrowth * (n - 1);
+    waveHpMul = (1 + CONFIG.waves.hpGrowth * (n - 1)) * diffConf().hpMul;
     if (!shopLocked) refreshShop();
     updateHud();
   }
   function onWaveCleared() {
     const bonus = CONFIG.waves.bonusBase + waveIndex * CONFIG.waves.bonusPerWave;
     grain += bonus;
+    if (window.SFX) SFX.play("coin");
     setHint("第 " + waveIndex + " 波守住！奖励 " + bonus + " 粮草");
+    if (phase === "win" && window.SFX) SFX.play("win");
     if (waveIndex >= CONFIG.waves.total) phase = "win";
     else { phase = "between"; prepTimer = CONFIG.waves.prepTime; }
     updateHud();
@@ -510,6 +523,7 @@
         }
         explosions.push({ x: target.x, y: target.y, life: 0.35, radius: def.splash * s });
         tracers.push({ x1: b.x, y1: b.y, x2: target.x, y2: target.y, life: 0.12 });
+        if (window.SFX) SFX.play("boom");
         b.cd = def.cooldown;
       } else if (def.dotDmg) {
         // 火攻台：伤害 + 减速 + 灼烧
@@ -519,6 +533,7 @@
         applySlow(target, def.slowMul, def.slowDur);
         applyDot(target, def.dotDmg * statMul(b.level), def.dotInterval, def.dotDur);
         tracers.push({ x1: b.x, y1: b.y, x2: target.x, y2: target.y, life: 0.12 });
+        if (window.SFX) SFX.play("fire");
         b.cd = def.cooldown;
       } else {
         // 连弩台
@@ -634,12 +649,14 @@
         for (const e of list) damageEnemy(e, sk.damage * dmgMul);
         if (sk.slowMul) for (const e of list) applySlow(e, sk.slowMul, sk.slowDur);
         explosions.push({ x: s.x, y: s.y, life: 0.4, radius: sk.radius * sCell });
+        if (window.SFX) SFX.play("boom");
         s.skillCd = sk.cooldown;
       } else if (sk.type === "multihit") {
         const target = nearestEnemy(s.x, s.y, sk.range || 5);
         if (!target) continue;
         damageEnemy(target, sk.damage * sk.count * dmgMul);
         explosions.push({ x: target.x, y: target.y, life: 0.25, radius: 0.6 * sCell });
+        if (window.SFX) SFX.play("shoot");
         s.skillCd = sk.cooldown;
       } else if (sk.type === "snipe") {
         let target = null, bestHp = -1;
@@ -912,8 +929,10 @@
     tracers = [];
     explosions = [];
     inventory = new Array(CONFIG.inventorySize).fill(null);
-    gateHp = CONFIG.gateHp;
-    grain = CONFIG.startGrain;
+    diffKey = selDiff ? selDiff.value : "normal";
+    const dc = diffConf();
+    gateHp = dc.gateHp;
+    grain = dc.startGrain;
     waveIndex = 0;
     phase = "ready";
     paused = false;
@@ -925,6 +944,7 @@
   }
 
   btnStart.addEventListener("click", function () {
+    if (window.SFX) SFX.play("click");
     if (phase === "ready") beginWave(1);
     else if (phase === "between") beginWave(waveIndex + 1);
     else if (phase === "over" || phase === "win") { startGame(); beginWave(1); }
@@ -1020,6 +1040,7 @@
   renderInventory();
   refreshShop();
 
+  if (query.get("diff")) { selDiff.value = query.get("diff"); }
   if (query.has("autostart") || simulateSec > 0) { startGame(); beginWave(1); }
 
   // 自动化测试阵容：多种塔 + 士兵 + 武将
@@ -1053,3 +1074,4 @@
     requestAnimationFrame(loop);
   }
 })();
+
