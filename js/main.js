@@ -25,6 +25,11 @@
   let soldiers = [];
   let tracers = [];
   let explosions = [];
+  let bullets = [];     // 追踪飞行弹丸（视觉）
+  let fxSlashes = [];   // 近战斩击弧线
+  let fxFloats = [];    // 飘字
+  let shakeTime = 0;    // 屏幕震动剩余时间
+  let shakeMag = 0;
   let inventory = new Array(CONFIG.inventorySize).fill(null);
   let uidCounter = 1;
   let unitImages = {}; // type -> 已加载贴图（img/*.png，无则用水墨占位）
@@ -81,6 +86,17 @@
     }
   }
   function statMul(level) { return Math.pow(CONFIG.levelGrowth, level - 1); }
+  function addShake(t, mag) { shakeTime = Math.max(shakeTime, t); shakeMag = Math.max(shakeMag, mag); }
+  function addFloat(x, y, text, color, size, life) {
+    fxFloats.push({ x: x, y: y, text: text, color: color || "#fff", size: size || 0.2, life: life || 0.6, ttl: life || 0.6 });
+    if (fxFloats.length > 80) fxFloats.shift();
+  }
+  function addSlash(x, y, dir, color) {
+    fxSlashes.push({ x: x, y: y, dir: dir, color: color || "#ffffff", life: 0.2, ttl: 0.2 });
+  }
+  function addBullet(x, y, target, color) {
+    bullets.push({ x: x, y: y, tx: target.x, ty: target.y, color: color, life: 0.4, ttl: 0.4 });
+  }
   function fieldCount() { return buildings.length + soldiers.length; }
   function freeSlot() { for (let i = 0; i < inventory.length; i++) if (!inventory[i]) return i; return -1; }
   function activePhase() { return phase === "ready" || phase === "battle" || phase === "between"; }
@@ -174,7 +190,7 @@
         col: col, row: row, x: center.x, y: center.y,
         curPath: pi, homePath: pi,
         hp: def.hp * statMul(level), maxHp: def.hp * statMul(level),
-        cd: 0, skillCd: 0, dead: false
+        cd: 0, skillCd: 0, dead: false, hitFlash: 0, recoilT: 0, animT: 0, animDur: 0, animDir: 0
       });
     } else {
       buildings.push({
@@ -405,14 +421,14 @@
         at: 0, x: pos.x, y: pos.y,
         hp: CONFIG.boss.hp * scale, maxHp: CONFIG.boss.hp * scale,
         isBoss: true,
-        fighting: false, attackCd: 0, dead: false
+        fighting: false, attackCd: 0, dead: false, flash: 0
       });
     } else {
       enemies.push({
         at: 0, x: pos.x, y: pos.y,
         hp: CONFIG.enemy.hp * waveHpMul, maxHp: CONFIG.enemy.hp * waveHpMul,
         isBoss: false,
-        fighting: false, attackCd: 0, dead: false,
+        fighting: false, attackCd: 0, dead: false, flash: 0,
         slowMul: 1, slowTime: 0, dotDmg: 0, dotInterval: 0, dotTime: 0, dotTimer: 0
       });
     }
@@ -424,9 +440,13 @@
   }
   function damageEnemy(e, dmg) {
     e.hp -= dmg;
+    if (dmg > 0 && !e.dead) e.flash = 0.1; // 受击闪白
+    if (dmg > 0 && !e.dead) addFloat(e.x, e.y - getCellSize() * 0.5, String(Math.round(dmg)), "#ffffff", 0.16, 0.5);
     if (e.hp <= 0 && !e.dead) {
       e.dead = true;
-      grain += e.isBoss ? CONFIG.boss.bounty : CONFIG.enemy.bounty;
+      const bounty = e.isBoss ? CONFIG.boss.bounty : CONFIG.enemy.bounty;
+      grain += bounty;
+      addFloat(e.x, e.y, "+" + bounty + "粮", "#ffd700", 0.24, 0.8);
     }
   }
   function applySlow(e, mul, dur) {
@@ -506,11 +526,15 @@
     updateEnemies(dt);
     updateTracers(dt);
     updateExplosions(dt);
+    updateFx(dt);
 
     enemies = enemies.filter(function (e) { return !e.dead; });
     soldiers = soldiers.filter(function (s) { return !s.dead; });
     tracers = tracers.filter(function (t) { return t.life > 0; });
     explosions = explosions.filter(function (x) { return x.life > 0; });
+    bullets = bullets.filter(function (b) { return b.life > 0; });
+    fxSlashes = fxSlashes.filter(function (f) { return f.life > 0; });
+    fxFloats = fxFloats.filter(function (f) { return f.life > 0; });
 
     if (waveToSpawn <= 0 && enemies.length === 0 && phase === "battle") onWaveCleared();
     updateHud();
@@ -520,6 +544,7 @@
   function updateBuildings(dt) {
     for (const b of buildings) {
       const def = unitDef(b.type);
+      if (b.recoilT > 0) b.recoilT -= dt;
       if (def.kind === "farmer") {
         b.timer -= dt;
         if (b.timer <= 0) {
@@ -544,7 +569,9 @@
           if (dist <= def.splash * s) damageEnemy(e, dmg * def.splashFactor);
         }
         explosions.push({ x: target.x, y: target.y, life: 0.35, radius: def.splash * s });
-        tracers.push({ x1: b.x, y1: b.y, x2: target.x, y2: target.y, life: 0.12 });
+        addBullet(b.x, b.y, target, def.color);
+        b.recoilT = 0.12;
+        addShake(0.15, 2);
         if (window.SFX) SFX.play("boom");
         b.cd = def.cooldown;
       } else if (def.dotDmg) {
@@ -554,7 +581,8 @@
         damageEnemy(target, dmg);
         applySlow(target, def.slowMul, def.slowDur);
         applyDot(target, def.dotDmg * statMul(b.level), def.dotInterval, def.dotDur);
-        tracers.push({ x1: b.x, y1: b.y, x2: target.x, y2: target.y, life: 0.12 });
+        addBullet(b.x, b.y, target, def.color);
+        b.recoilT = 0.12;
         if (window.SFX) SFX.play("fire");
         b.cd = def.cooldown;
       } else {
@@ -562,7 +590,8 @@
         const target = nearestEnemy(b.x, b.y, def.range);
         if (!target) continue;
         damageEnemy(target, dmg);
-        tracers.push({ x1: b.x, y1: b.y, x2: target.x, y2: target.y, life: 0.12 });
+        addBullet(b.x, b.y, target, def.color);
+        b.recoilT = 0.12;
         b.cd = def.cooldown;
       }
     }
@@ -590,6 +619,8 @@
     for (const s of soldiers) {
       if (s.dead) continue;
       const def = unitDef(s.type);
+      if (s.recoilT > 0) s.recoilT -= dt;
+      if (s.animT > 0) s.animT -= dt;
 
       if (def.ranged) {
         // 远程：站桩射击
@@ -599,7 +630,9 @@
           if (target) {
             damageEnemy(target, def.damage * statMul(s.level));
             s.cd = def.attackInterval;
-            tracers.push({ x1: s.x, y1: s.y, x2: target.x, y2: target.y, life: 0.12 });
+            s.recoilT = 0.14;
+            s.animDir = Math.atan2(target.y - s.y, target.x - s.x);
+            addBullet(s.x, s.y, target, def.color);
           }
         }
         continue;
@@ -617,7 +650,11 @@
         if (s.cd <= 0) {
           damageEnemy(target, def.damage * statMul(s.level));
           s.cd = def.attackInterval;
-          tracers.push({ x1: s.x, y1: s.y, x2: target.x, y2: target.y, life: 0.12 });
+          s.animDur = Math.max(0.18, Math.min(0.34, def.attackInterval * 0.6));
+          s.animT = s.animDur;
+          s.animDir = Math.atan2(target.y - s.y, target.x - s.x);
+          addSlash(s.x, s.y, s.animDir, def.hero ? "#ffd700" : "#ffffff");
+          if (def.hero) addShake(0.08, 1);
         }
         continue; // 已在交战距离，保持原位（相邻格），不重叠
       }
@@ -671,6 +708,7 @@
         if (sk.slowMul) for (const e of list) applySlow(e, sk.slowMul, sk.slowDur);
         explosions.push({ x: s.x, y: s.y, life: 0.4, radius: sk.radius * sCell });
         if (window.SFX) SFX.play("boom");
+        addShake(0.15, 2);
         s.skillCd = sk.cooldown;
       } else if (sk.type === "multihit") {
         const target = nearestEnemy(s.x, s.y, sk.range || 5);
@@ -678,6 +716,7 @@
         damageEnemy(target, sk.damage * sk.count * dmgMul);
         explosions.push({ x: target.x, y: target.y, life: 0.25, radius: 0.6 * sCell });
         if (window.SFX) SFX.play("shoot");
+        addShake(0.08, 1);
         s.skillCd = sk.cooldown;
       } else if (sk.type === "snipe") {
         let target = null, bestHp = -1;
@@ -691,6 +730,7 @@
         damageEnemy(target, sk.damage * dmgMul);
         tracers.push({ x1: s.x, y1: s.y, x2: target.x, y2: target.y, life: 0.2 });
         explosions.push({ x: target.x, y: target.y, life: 0.3, radius: 0.7 * sCell });
+        addShake(0.1, 1.5);
         s.skillCd = sk.cooldown;
       }
     }
@@ -768,6 +808,22 @@
 
   function updateTracers(dt) { for (const t of tracers) t.life -= dt; }
   function updateExplosions(dt) { for (const x of explosions) x.life -= dt; }
+  function updateFx(dt) {
+    // 飞行弹丸：追踪目标点（必中，视觉延迟）
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.life -= dt;
+      const dx = b.tx - b.x, dy = b.ty - b.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const spd = 900 * dt;
+      if (dist <= spd || b.life <= 0) { bullets.splice(i, 1); continue; }
+      b.x += (dx / dist) * spd;
+      b.y += (dy / dist) * spd;
+    }
+    for (const f of fxSlashes) f.life -= dt;
+    for (const f of fxFloats) { f.life -= dt; f.y -= 26 * dt; }
+    if (shakeTime > 0) shakeTime -= dt; else shakeMag = 0;
+  }
 
   // ---------- 绘制 ----------
   function drawHpBar(x, y, w, h, ratio, color) {
@@ -855,6 +911,14 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(def.short + (sld.level > 1 ? sld.level : ""), sld.x, sld.y);
+      if (sld.hitFlash > 0) {
+        ctx.globalAlpha = Math.min(1, sld.hitFlash / 0.1) * 0.7;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(sld.x, sld.y, s * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
       if (sld.hp < sld.maxHp) {
         drawHpBar(sld.x - s * 0.3, sld.y - s * 0.48, s * 0.6, 5,
           Math.max(0, sld.hp / sld.maxHp), def.hero ? "#ffd700" : "#4caf50");
@@ -891,6 +955,14 @@
       ctx.beginPath();
       ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
       ctx.fill();
+      if (e.flash > 0) {
+        ctx.globalAlpha = Math.min(1, e.flash / 0.1) * 0.7;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
       if (e.isBoss) {
         ctx.strokeStyle = "#fff";
         ctx.lineWidth = 2;
@@ -933,6 +1005,49 @@
       ctx.beginPath();
       ctx.arc(x.x, x.y, x.radius * (1 - x.life / 0.4 + 0.2), 0, Math.PI * 2);
       ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawBullets() {
+    const s = getCellSize();
+    for (const b of bullets) {
+      const a = Math.atan2(b.ty - b.y, b.tx - b.x);
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(a);
+      ctx.fillStyle = b.color;
+      ctx.fillRect(-s * 0.16, -s * 0.045, s * 0.32, s * 0.09);
+      ctx.restore();
+    }
+  }
+  function drawFxSlashes() {
+    const s = getCellSize();
+    for (const f of fxSlashes) {
+      ctx.save();
+      ctx.translate(f.x, f.y);
+      ctx.rotate(f.dir);
+      ctx.globalAlpha = Math.max(0, Math.min(1, f.life / 0.2));
+      ctx.strokeStyle = f.color;
+      ctx.lineWidth = s * 0.08;
+      ctx.beginPath();
+      ctx.arc(s * 0.15, 0, s * 0.55, -0.8, 0.8);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  }
+  function drawFxFloats() {
+    const s = getCellSize();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const f of fxFloats) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, f.life / f.ttl));
+      ctx.font = (f.size * s) + "px KaiTi, serif";
+      ctx.strokeStyle = "rgba(0,0,0,0.7)";
+      ctx.lineWidth = 3;
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, f.x, f.y);
     }
     ctx.globalAlpha = 1;
   }
@@ -984,12 +1099,19 @@
     ctx.globalAlpha = 1;
   }
   function draw() {
+    if (shakeTime > 0) {
+      ctx.save();
+      ctx.translate((Math.random() * 2 - 1) * shakeMag, (Math.random() * 2 - 1) * shakeMag);
+    }
     drawMap(ctx);
     drawBuildings();
     drawSoldiers();
     drawEnemies();
     drawTracers();
     drawExplosions();
+    drawBullets();
+    drawFxSlashes();
+    drawFxFloats();
     drawGateHpBar();
     drawDragPreview();
 
@@ -1005,6 +1127,7 @@
       ctx.font = "22px KaiTi, serif";
       ctx.fillText("点击「再战一局」重新开始", canvas.width / 2, canvas.height / 2 + 30);
     }
+    if (shakeTime > 0) ctx.restore();
   }
 
   // ---------- 主循环 ----------
