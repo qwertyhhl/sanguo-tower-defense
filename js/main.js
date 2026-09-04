@@ -77,7 +77,7 @@
     else if (phase === "between") btnStart.textContent = "开始第 " + (waveIndex + 1) + " 波";
     else if (phase === "over" || phase === "win") btnStart.textContent = "再战一局";
     else btnStart.textContent = "进攻中…";
-    btnLock.textContent = shopLocked ? "已锁定（点此解锁）" : "锁定商店（下波自动刷新）";
+    btnLock.textContent = shopLocked ? "已锁定" : "锁定";
     btnLock.classList.toggle("locked", shopLocked);
   }
 
@@ -672,12 +672,12 @@
       ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = phase === "win" ? "#f1c40f" : "#e74c3c";
-      ctx.font = "52px KaiTi, serif";
+      ctx.font = "38px KaiTi, serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(phase === "win" ? "守城成功！" : "城破……", canvas.width / 2, canvas.height / 2 - 20);
       ctx.fillStyle = "#f0d9a0";
-      ctx.font = "22px KaiTi, serif";
+      ctx.font = "16px KaiTi, serif";
       ctx.fillText("点击「再战一局」重新开始", canvas.width / 2, canvas.height / 2 + 30);
     }
   }
@@ -772,6 +772,16 @@
 
   // ---------- 启动 ----------
   const query = new URLSearchParams(window.location.search);
+
+  // 调试：量页面高度是否超过一屏（读 <title> 里的 INNER/SCROLL 数值）
+  if (query.has("reportheight")) {
+    function reportHeight() {
+      document.title = "INNER=" + window.innerHeight + " SCROLL=" + document.documentElement.scrollHeight;
+    }
+    reportHeight();
+    setTimeout(reportHeight, 100);
+    setTimeout(reportHeight, 500);
+  }
   const simulateSec = parseFloat(query.get("simulate") || "0");
 
   renderInventory();
@@ -804,6 +814,9 @@
     requestAnimationFrame(loop);
   }
 })();
+
+
+
 
 
 
