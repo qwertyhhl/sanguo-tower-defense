@@ -45,7 +45,7 @@
   dragGhost.style.cssText =
     "position:fixed;left:0;top:0;display:none;pointer-events:none;z-index:999;" +
     "padding:3px 10px;border-radius:10px;color:#fff;font-size:14px;" +
-    "border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 8px rgba(0,0,0,0.5);transform:translateX(-50%);" +
+    "border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 8px rgba(0,0,0,0.5);transform:translate(-50%,-50%);" +
     "white-space:nowrap;";
   document.body.appendChild(dragGhost);
 
@@ -788,7 +788,7 @@
     // 让“拖拽卡片”跟随鼠标；画布内用画布预览，画布外用悬浮卡片
     if (drag) {
       dragGhost.style.left = e.clientX + "px";
-      dragGhost.style.top = (e.clientY + 16) + "px";
+      dragGhost.style.top = e.clientY + "px";
       dragGhost.style.display = mouse.inside ? "none" : "block";
     }
   });
@@ -876,6 +876,7 @@
     requestAnimationFrame(loop);
   }
 })();
+
 
 
 
