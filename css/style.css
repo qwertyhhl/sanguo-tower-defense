@@ -1,4 +1,4 @@
-/* 三国守城 - 基础样式（M0） */
+/* 三国守城 - 基础样式（M1 增加 HUD 状态栏） */
 body {
   margin: 0;
   background: #1a120b;            /* 深色背景，像夜晚的城 */
@@ -8,13 +8,42 @@ body {
 }
 
 h1#game-title {
-  margin: 18px 0 10px;
-  font-size: 32px;
+  margin: 16px 0 8px;
+  font-size: 30px;
   letter-spacing: 10px;
 }
 
+/* 顶部状态栏 */
+#hud {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 26px;
+  max-width: 960px;
+  margin: 0 auto 10px;
+  padding: 8px 14px;
+  background: #2a1f12;
+  border: 1px solid #5a4a2a;
+  border-radius: 8px;
+  font-size: 18px;
+}
+.hud-item b { color: #ffd97a; }
+
+#btn-start {
+  font-family: inherit;
+  font-size: 18px;
+  padding: 6px 18px;
+  background: #8c1f1f;
+  color: #ffe9b0;
+  border: 1px solid #c0392b;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#btn-start:hover:enabled { background: #a93226; }
+#btn-start:disabled { opacity: 0.6; cursor: default; }
+
 canvas#gameCanvas {
-  background: #3a6b35;            /* 先给画布一个草地底色，之后会画地图 */
+  background: #3a6b35;
   border: 2px solid #5a4a2a;
   border-radius: 6px;
   display: block;
