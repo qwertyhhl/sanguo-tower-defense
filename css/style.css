@@ -44,6 +44,20 @@ body {
 #btn-start:hover:enabled { background: #a93226; }
 #btn-start:disabled { opacity: 0.6; cursor: default; }
 
+#btn-pause, #btn-speed {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 3px 12px;
+  background: #4a3520;
+  color: #ffe9b0;
+  border: 1px solid #8c6d3f;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#btn-pause:hover:enabled, #btn-speed:hover:enabled { background: #5d4528; }
+#btn-pause.active { background: #6b4a1f; border-color: #f1c40f; }
+
 /* 战场画布 */
 canvas#gameCanvas {
   display: block;
@@ -201,5 +215,6 @@ canvas#gameCanvas {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 
 
