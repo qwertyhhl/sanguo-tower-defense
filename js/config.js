@@ -1,4 +1,4 @@
-// config.js —— 所有可调数值都放这里（M1 版）
+// config.js —— 所有可调数值都放这里（M2 版）
 // 改这里的数字 = 改难度/表现，不用动其他代码。
 
 const CONFIG = {
@@ -21,10 +21,42 @@ const CONFIG = {
   // 城门耐久
   gateHp: 20,
 
-  // 敌军（M1 还没有战斗，先只管“沿路走”）
+  // 初始粮草（M2 先给足 150，方便三种单位各试一个；M3 商店接管后按设计改回 100）
+  startGrain: 150,
+
+  // 敌军步兵（M2 先用一种敌人测试战斗）
   enemy: {
-    speed: 2.2,         // 每秒钟走过几格
-    spawnInterval: 1.0, // 每隔几秒来一个
+    hp: 30,
+    speed: 2.2,          // 每秒走过几格
+    damage: 8,           // 每次攻击伤害
+    attackInterval: 1.0, // 攻击间隔（秒）
+    bounty: 4,           // 消灭后掉落的粮草
+    spawnInterval: 1.5,  // 每隔几秒来一个
     color: "#c0392b"
+  },
+
+  // 防御设施（塔）：放在非路径格
+  towers: {
+    archer: {
+      name: "连弩台", short: "弩",
+      cost: 50, damage: 10, range: 2.5, cooldown: 0.6,
+      color: "#2980b9"
+    }
+  },
+
+  // 部队（士兵/武将）：放在路径格，与敌人正面对抗
+  soldiers: {
+    shield: {
+      name: "盾兵", short: "盾",
+      cost: 40, hp: 200, damage: 12, attackInterval: 1.0,
+      range: 0, ranged: false,          // 近战：只打停在面前的敌人
+      color: "#7f8c8d"
+    },
+    archer: {
+      name: "弓兵", short: "弓",
+      cost: 60, hp: 60, damage: 14, attackInterval: 0.8,
+      range: 3, ranged: true,           // 远程：打射程内最近的敌人
+      color: "#229954"
+    }
   }
 };

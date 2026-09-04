@@ -1,15 +1,15 @@
-/* 三国守城 - 基础样式（M1 增加 HUD 状态栏） */
+/* 三国守城 - 基础样式（M2：增加部署栏） */
 body {
   margin: 0;
-  background: #1a120b;            /* 深色背景，像夜晚的城 */
-  color: #f0d9a0;                 /* 泛黄的古籍色 */
+  background: #1a120b;
+  color: #f0d9a0;
   font-family: "KaiTi", "STKaiti", "SimSun", serif;
   text-align: center;
 }
 
 h1#game-title {
-  margin: 16px 0 8px;
-  font-size: 30px;
+  margin: 12px 0 6px;
+  font-size: 28px;
   letter-spacing: 10px;
 }
 
@@ -20,19 +20,19 @@ h1#game-title {
   align-items: center;
   gap: 26px;
   max-width: 960px;
-  margin: 0 auto 10px;
-  padding: 8px 14px;
+  margin: 0 auto 8px;
+  padding: 6px 14px;
   background: #2a1f12;
   border: 1px solid #5a4a2a;
   border-radius: 8px;
-  font-size: 18px;
+  font-size: 17px;
 }
 .hud-item b { color: #ffd97a; }
 
 #btn-start {
   font-family: inherit;
-  font-size: 18px;
-  padding: 6px 18px;
+  font-size: 17px;
+  padding: 5px 16px;
   background: #8c1f1f;
   color: #ffe9b0;
   border: 1px solid #c0392b;
@@ -48,4 +48,34 @@ canvas#gameCanvas {
   border-radius: 6px;
   display: block;
   margin: 0 auto;
+}
+
+/* 底部部署栏 */
+#deploy-bar {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin: 10px auto 4px;
+}
+.card {
+  width: 108px;
+  padding: 8px 4px;
+  background: #2a1f12;
+  border: 2px solid #5a4a2a;
+  border-radius: 10px;
+  cursor: grab;
+  user-select: none;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.card small { color: #ffd97a; font-size: 13px; }
+.card.tower { border-color: #2980b9; }
+.card.soldier { border-color: #229954; }
+.card.selected { outline: 3px solid #ffe9b0; }
+.card.disabled { opacity: 0.45; cursor: not-allowed; }
+
+#deploy-hint {
+  font-size: 14px;
+  color: #b8a276;
+  margin: 2px auto 8px;
 }
