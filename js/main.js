@@ -142,6 +142,11 @@
     for (const s of soldiers) if (!s.dead && s.col === cell.c && s.row === cell.r) out.push(s);
     return out;
   }
+  // 某路线点是否有己方士兵/武将（用于“相邻格对战”，禁止踩进对方格子）
+  function soldierOnPathIndex(idx) {
+    if (idx < 0 || idx >= CONFIG.path.length) return false;
+    return soldiersOnCell(CONFIG.path[idx]).length > 0;
+  }
 
   function validatePlace(type, level, col, row, fromField) {
     const def = unitDef(type);
@@ -600,35 +605,34 @@
         continue;
       }
 
-      // 近战（含出击武将）：同格敌人先打
-      const myCell = CONFIG.path[s.curPath];
-      let same = null;
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const ec = CONFIG.path[e.at];
-        if (ec.c === myCell.c && ec.r === myCell.r) { same = e; break; }
-      }
-      if (same) {
-        s.cd -= dt;
-        if (s.cd <= 0) {
-          damageEnemy(same, def.damage * statMul(s.level));
-          s.cd = def.attackInterval;
-          tracers.push({ x1: s.x, y1: s.y, x2: same.x, y2: same.y, life: 0.12 });
-        }
-        continue;
-      }
-
-      // 找射程内最近的敌人（沿路径距离），迎击 / 出击
-      const reach = def.engage || 0;
-      let target = null, bestD = Infinity;
+      // 近战（含出击武将）：同格或相邻格（路径距离≤1）即可攻击，不踏入敌人所在格
+      let target = null, bestD = 10;
       for (const e of enemies) {
         if (e.dead) continue;
         const d = Math.abs(e.at - s.curPath);
-        if (d <= reach && d < bestD && d > 0) { bestD = d; target = e; }
+        if (d < bestD) { bestD = d; target = e; }
       }
-      if (target) {
-        const stepIdx = target.at > s.curPath ? s.curPath + 1 : s.curPath - 1;
-        moveUnitToward(s, stepIdx, def, dt);
+      if (target && bestD <= 1) {
+        s.cd -= dt;
+        if (s.cd <= 0) {
+          damageEnemy(target, def.damage * statMul(s.level));
+          s.cd = def.attackInterval;
+          tracers.push({ x1: s.x, y1: s.y, x2: target.x, y2: target.y, life: 0.12 });
+        }
+        continue; // 已在交战距离，保持原位（相邻格），不重叠
+      }
+
+      // 敌人较远（距离≥2）时：迎击/出击前进（但前方格子被自己人占着就排队）
+      const reach = def.engage || 0;
+      let far = null, bestFar = Infinity;
+      for (const e of enemies) {
+        if (e.dead) continue;
+        const d = Math.abs(e.at - s.curPath);
+        if (d > 1 && d <= reach && d < bestFar) { bestFar = d; far = e; }
+      }
+      if (far) {
+        const stepIdx = far.at > s.curPath ? s.curPath + 1 : s.curPath - 1;
+        if (!soldierOnPathIndex(stepIdx)) moveUnitToward(s, stepIdx, def, dt);
       } else if (s.curPath !== s.homePath) {
         // 回位
         const stepIdx = s.curPath > s.homePath ? s.curPath - 1 : s.curPath + 1;
@@ -697,7 +701,7 @@
       const e = enemies[i];
       if (e.dead) continue;
 
-      // 状态：减速 / 灼烧
+      // 状态：减速 / 灼烧 / 受击闪白
       if (e.slowTime > 0) e.slowTime -= dt;
       if (e.dotTime > 0) {
         e.dotTime -= dt;
@@ -707,17 +711,25 @@
           damageEnemy(e, e.dotDmg);
         }
       }
+      if (e.flash > 0) e.flash -= dt;
 
       if (e.fighting) {
         e.attackCd -= dt;
-        const defs = soldiersOnCell(CONFIG.path[e.at]);
+        // 敌军停在自己格子，防守方在“下一格（e.at+1）”相邻交战
+        const foeCell = CONFIG.path[e.at + 1] || CONFIG.path[e.at];
+        const defs = soldiersOnCell(foeCell);
         if (defs.length === 0) {
           e.fighting = false;
         } else if (e.attackCd <= 0) {
           if (e.isBoss) {
-            for (const d of defs) { d.hp -= CONFIG.boss.damage; if (d.hp <= 0) d.dead = true; }
+            for (const d of defs) {
+              d.hp -= CONFIG.boss.damage;
+              d.hitFlash = 0.1;
+              if (d.hp <= 0) d.dead = true;
+            }
           } else {
             defs[0].hp -= CONFIG.enemy.damage;
+            defs[0].hitFlash = 0.1;
             if (defs[0].hp <= 0) defs[0].dead = true;
           }
           e.attackCd = e.isBoss ? CONFIG.boss.attackInterval : CONFIG.enemy.attackInterval;
@@ -725,8 +737,14 @@
         continue;
       }
 
-      const here = soldiersOnCell(CONFIG.path[e.at]);
-      if (here.length > 0) { e.fighting = true; continue; }
+      // 下一格被己方占领 → 在本格停下，隔一格交战（不重叠）
+      const nextIdx = e.at + 1;
+      if (nextIdx < CONFIG.path.length && soldierOnPathIndex(nextIdx)) {
+        e.fighting = true;
+        continue;
+      }
+      // 意外同格（例如己方追击途中）也按交战处理
+      if (soldierOnPathIndex(e.at)) { e.fighting = true; continue; }
 
       if (e.at >= CONFIG.path.length - 1) { arriveGate(e); enemies.splice(i, 1); continue; }
 
@@ -740,7 +758,7 @@
         e.at += 1;
         e.x = dest.x; e.y = dest.y;
         if (e.at >= CONFIG.path.length - 1) { arriveGate(e); enemies.splice(i, 1); continue; }
-        if (soldiersOnCell(CONFIG.path[e.at]).length > 0) e.fighting = true;
+        if (soldierOnPathIndex(e.at)) e.fighting = true;
       } else {
         e.x += (dx / dist) * step;
         e.y += (dy / dist) * step;
