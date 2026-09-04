@@ -10,18 +10,25 @@
 
   <!-- 顶部状态栏 -->
   <div id="hud">
+    <span class="hud-item">波次：<b id="hud-wave">0/10</b></span>
+    <span class="hud-item">粮草：<b id="hud-grain">100</b></span>
+    <span class="hud-item">人口：<b id="hud-pop">0/20</b></span>
     <span class="hud-item">状态：<b id="hud-phase">准备中</b></span>
-    <span class="hud-item">粮草：<b id="hud-grain">150</b></span>
     <button id="btn-start" type="button">开始守城</button>
   </div>
 
   <canvas id="gameCanvas" width="960" height="540"></canvas>
 
-  <!-- 底部部署栏（M2 测试用：直接从这拖单位上场；M3 换成商店+背包） -->
-  <div id="deploy-bar"></div>
-  <div id="deploy-hint">按住下面的单位拖到地图上：塔放草地格，士兵放路上</div>
+  <!-- 商店：随机 3 件 + 刷新 -->
+  <div id="shop-panel">
+    <div id="shop-items"></div>
+    <button id="btn-refresh" type="button">刷新商店（10 粮草）</button>
+  </div>
 
-  <!-- 引入顺序很重要：config → map → main -->
+  <!-- 背包：5 格 -->
+  <div id="inventory-bar"></div>
+  <div id="deploy-hint">点商店「买」→ 单位进背包 → 把背包里的单位拖到地图上；两个同类型同等级单位拖一起可合成升级</div>
+
   <script src="js/config.js"></script>
   <script src="js/map.js"></script>
   <script src="js/main.js"></script>

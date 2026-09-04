@@ -1,4 +1,4 @@
-// config.js —— 所有可调数值都放这里（M2 版）
+// config.js —— 所有可调数值都放这里（M3 版）
 // 改这里的数字 = 改难度/表现，不用动其他代码。
 
 const CONFIG = {
@@ -21,41 +21,79 @@ const CONFIG = {
   // 城门耐久
   gateHp: 20,
 
-  // 初始粮草（M2 先给足 150，方便三种单位各试一个；M3 商店接管后按设计改回 100）
-  startGrain: 150,
+  // 经济 / 背包 / 人口
+  startGrain: 100,      // 初始粮草（设计默认）
+  inventorySize: 5,     // 背包格数
+  popCap: 20,           // 场上人口上限（塔+农民+士兵+武将）
+  maxLevel: 3,          // 合成等级上限（1+1=2，2+2=3）
+  levelGrowth: 1.8,     // 每升 1 级，攻击/血量 ×1.8（示例，可调）
 
-  // 敌军步兵（M2 先用一种敌人测试战斗）
+  // 商店
+  shop: {
+    size: 3,            // 每次随机上架几件
+    refreshCost: 10,    // 刷新花费
+    pool: [             // 商品池（type + 权重）
+      { type: "soldier.shield", weight: 3 },
+      { type: "soldier.archer", weight: 2 },
+      { type: "tower.archer", weight: 2 },
+      { type: "farmer.farmer", weight: 2 }
+    ]
+  },
+
+  // 波次
+  waves: {
+    total: 10,
+    prepTime: 8,        // 两波之间的准备时间（秒）
+    baseCount: 4,       // 第 1 波敌人数量基数
+    countPerWave: 2,    // 每波增加的数量
+    hpGrowth: 0.25,     // 每波血量成长系数
+    bonusBase: 20,      // 每波守住的保底奖励
+    bonusPerWave: 5     // 每波额外奖励
+  },
+
+  // 敌军步兵（M3 先只用一种敌人，数量/血量随波次成长）
   enemy: {
     hp: 30,
-    speed: 2.2,          // 每秒走过几格
-    damage: 8,           // 每次攻击伤害
-    attackInterval: 1.0, // 攻击间隔（秒）
-    bounty: 4,           // 消灭后掉落的粮草
-    spawnInterval: 1.5,  // 每隔几秒来一个
+    speed: 2.2,
+    damage: 8,
+    attackInterval: 1.0,
+    bounty: 4,
+    spawnInterval: 1.2,
     color: "#c0392b"
   },
 
   // 防御设施（塔）：放在非路径格
   towers: {
     archer: {
-      name: "连弩台", short: "弩",
+      name: "连弩台", short: "弩", kind: "tower",
       cost: 50, damage: 10, range: 2.5, cooldown: 0.6,
       color: "#2980b9"
+    }
+  },
+
+  // 农民：放在非路径格，自动产粮草
+  farmers: {
+    farmer: {
+      name: "农民", short: "农", kind: "farmer",
+      cost: 40,
+      produce: [5, 10, 20], // 1/2/3 级每 5 秒产粮
+      produceInterval: 5,
+      color: "#d4a017"
     }
   },
 
   // 部队（士兵/武将）：放在路径格，与敌人正面对抗
   soldiers: {
     shield: {
-      name: "盾兵", short: "盾",
+      name: "盾兵", short: "盾", kind: "soldier",
       cost: 40, hp: 200, damage: 12, attackInterval: 1.0,
-      range: 0, ranged: false,          // 近战：只打停在面前的敌人
+      range: 0, ranged: false,
       color: "#7f8c8d"
     },
     archer: {
-      name: "弓兵", short: "弓",
+      name: "弓兵", short: "弓", kind: "soldier",
       cost: 60, hp: 60, damage: 14, attackInterval: 0.8,
-      range: 3, ranged: true,           // 远程：打射程内最近的敌人
+      range: 3, ranged: true,
       color: "#229954"
     }
   }

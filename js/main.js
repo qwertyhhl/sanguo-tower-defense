@@ -1,66 +1,84 @@
-// main.js —— M2：部署单位 + 战斗核心
-// 功能：从底部部署栏把 塔/士兵 拖到地图上；塔远程攻击、士兵挡路对战；
-//       消灭敌军掉落粮草；敌军抵达城门扣耐久。
+// main.js —— M3：商店 + 背包 + 合成 + 农民 + 10 波完整流程（可玩 MVP）
+// 玩法：商店买单位 → 进 5 格背包 → 拖到场上（塔/农民放草地，士兵放路上）
+//       同类型同等级单位拖一起 = 合成升级（上限 3 级）→ 守住 10 波胜利
 (function () {
   "use strict";
 
   const canvas = document.getElementById("gameCanvas");
   const ctx = canvas.getContext("2d");
 
-  // ---------- 游戏数据 ----------
-  let phase = "ready";   // ready 准备中 / playing 战斗中 / over 城破
+  // ---------- 游戏状态 ----------
+  let phase = "ready";      // ready 准备 / between 备战 / battle 进攻中 / over 城破 / win 胜利
   let gateHp = CONFIG.gateHp;
   let grain = CONFIG.startGrain;
-  let enemies = [];      // 场上敌军
-  let towers = [];       // 场上防御设施（塔）
-  let soldiers = [];     // 场上部队（士兵/武将）
-  let tracers = [];      // 攻击“弹道”特效（短暂线条）
-  let spawnTimer = 0;    // 距下一个敌军出生的倒计时（秒）
+  let waveIndex = 0;        // 当前波数（0 = 还没开始）
+  let waveToSpawn = 0;      // 这一波还剩几个没出生
+  let waveSpawnTimer = 0;   // 波内出生倒计时
+  let waveHpMul = 1;        // 本波敌军血量倍率
+  let prepTimer = 0;        // 备战倒计时
+  let enemies = [];
+  let buildings = [];       // 非路径格建筑：塔 / 农民
+  let soldiers = [];        // 路径格部队
+  let tracers = [];
+  let inventory = new Array(CONFIG.inventorySize).fill(null);
+  let uidCounter = 1;
 
-  // 鼠标与“选中的单位”（从部署栏拖出/点选后）
+  // 拖拽状态：从背包或场上拿起一个单位
+  let drag = null;          // { type, level, from:'inv'|'field', slot?, uid? }
   const mouse = { x: 0, y: 0, inside: false };
-  let selection = null;  // 例如 "soldier.shield"
-  let dragging = false;  // 是否正按住拖动
   let hintTimer = null;
 
   // ---------- DOM ----------
-  const hudPhase = document.getElementById("hud-phase");
+  const hudWave = document.getElementById("hud-wave");
   const hudGrain = document.getElementById("hud-grain");
+  const hudPop = document.getElementById("hud-pop");
+  const hudPhase = document.getElementById("hud-phase");
   const btnStart = document.getElementById("btn-start");
-  const deployBar = document.getElementById("deploy-bar");
+  const shopItems = document.getElementById("shop-items");
+  const btnRefresh = document.getElementById("btn-refresh");
+  const inventoryBar = document.getElementById("inventory-bar");
   const hintEl = document.getElementById("deploy-hint");
-  const cardEls = {}; // type -> DOM 卡片
 
-  // ---------- 工具 ----------
-  function updateHud() {
-    hudPhase.textContent = phase === "ready" ? "准备中"
-      : phase === "playing" ? "战斗中" : "城破…";
-    hudGrain.textContent = grain;
-    btnStart.disabled = !(phase === "ready" || phase === "over");
-
-    // 卡片买不起就置灰
-    for (const type in cardEls) {
-      const def = unitDef(type);
-      cardEls[type].classList.toggle("disabled", grain < def.cost);
-    }
+  // ---------- 基础工具 ----------
+  function unitDef(type) {
+    if (type.indexOf("tower.") === 0) return CONFIG.towers[type.slice(6)];
+    if (type.indexOf("farmer.") === 0) return CONFIG.farmers[type.slice(7)];
+    if (type.indexOf("soldier.") === 0) return CONFIG.soldiers[type.slice(8)];
+    return null;
   }
+  function statMul(level) { return Math.pow(CONFIG.levelGrowth, level - 1); }
+  function fieldCount() { return buildings.length + soldiers.length; }
+  function freeSlot() { for (let i = 0; i < inventory.length; i++) if (!inventory[i]) return i; return -1; }
+  function activePhase() { return phase === "battle" || phase === "between"; }
 
   function setHint(text) {
     hintEl.textContent = text;
     if (hintTimer) clearTimeout(hintTimer);
     hintTimer = setTimeout(function () {
-      hintEl.textContent = "按住下面的单位拖到地图上：塔放草地格，士兵放路上";
-    }, 2500);
+      hintEl.textContent = "商店买单位 → 拖到地图部署；同类型同等级拖一起可合成升级";
+    }, 2600);
   }
 
-  // 根据类型字符串拿定义，如 "tower.archer" → CONFIG.towers.archer
-  function unitDef(type) {
-    if (type.indexOf("tower.") === 0) return CONFIG.towers[type.slice(6)];
-    if (type.indexOf("soldier.") === 0) return CONFIG.soldiers[type.slice(8)];
-    return null;
+  function updateHud() {
+    hudWave.textContent = waveIndex + "/" + CONFIG.waves.total;
+    hudGrain.textContent = grain;
+    hudPop.textContent = fieldCount() + "/" + CONFIG.popCap;
+
+    let text = "准备中";
+    if (phase === "battle") text = "第 " + waveIndex + " 波进攻中";
+    else if (phase === "between") text = "备战：第 " + (waveIndex + 1) + " 波还有 " + Math.ceil(prepTimer) + " 秒";
+    else if (phase === "over") text = "城破……";
+    else if (phase === "win") text = "守城成功！";
+    hudPhase.textContent = text;
+
+    btnStart.disabled = !(phase === "ready" || phase === "between" || phase === "over" || phase === "win");
+    if (phase === "ready") btnStart.textContent = "开始守城";
+    else if (phase === "between") btnStart.textContent = "开始第 " + (waveIndex + 1) + " 波";
+    else if (phase === "over" || phase === "win") btnStart.textContent = "再战一局";
+    else btnStart.textContent = "进攻中…";
   }
 
-  // 屏幕/鼠标坐标 → 格子坐标
+  // ---------- 地图格子工具 ----------
   function cellFromPoint(px, py) {
     const s = getCellSize();
     const col = Math.floor(px / s);
@@ -68,229 +86,391 @@
     if (col < 0 || row < 0 || col >= CONFIG.gridCols || row >= CONFIG.gridRows) return null;
     return { c: col, r: row };
   }
+  function buildingAt(col, row) {
+    for (const b of buildings) if (b.col === col && b.row === row) return b;
+    return null;
+  }
+  function soldiersOnCell(cell) {
+    const out = [];
+    for (const s of soldiers) if (!s.dead && s.col === cell.c && s.row === cell.r) out.push(s);
+    return out;
+  }
 
-  // 校验能否把某单位放到某格
-  function validatePlace(type, col, row) {
+  // 校验能否放置：addsPop=true 表示会占用新人口
+  function validatePlace(type, level, col, row, fromField) {
     const def = unitDef(type);
     if (!def) return { ok: false, msg: "未知单位" };
-    if (grain < def.cost) return { ok: false, msg: "粮草不足" };
-
-    const last = CONFIG.path[CONFIG.path.length - 1];
-    if (type.indexOf("soldier.") === 0) {
+    if (col === CONFIG.path[CONFIG.path.length - 1].c && row === CONFIG.path[CONFIG.path.length - 1].r) {
+      return { ok: false, msg: "城门口不能放单位" };
+    }
+    if (def.kind === "soldier") {
       if (!isPathCell(col, row)) return { ok: false, msg: "士兵要放在路上" };
-      if (col === last.c && row === last.r) return { ok: false, msg: "城门口不能站人" };
-      return { ok: true };
+    } else {
+      if (isPathCell(col, row)) return { ok: false, msg: "塔/农民要放在草地格" };
+      if (buildingAt(col, row)) return { ok: false, msg: "这里已经有建筑了" };
     }
-    // 塔
-    if (isPathCell(col, row)) return { ok: false, msg: "塔要放在草地格" };
-    if (towers.some(function (t) { return t.col === col && t.row === row; })) {
-      return { ok: false, msg: "这里已经有建筑了" };
-    }
+    if (!fromField && fieldCount() >= CONFIG.popCap) return { ok: false, msg: "人口已满（" + CONFIG.popCap + "）" };
     return { ok: true };
   }
 
-  // 真正放置一个单位并扣粮草
-  function placeUnit(type, col, row) {
+  function addUnitToField(type, level, col, row) {
     const def = unitDef(type);
     const center = cellCenter(col, row);
-    grain -= def.cost;
-
-    if (type.indexOf("tower.") === 0) {
-      towers.push({
-        type: type, col: col, row: row,
+    const uid = uidCounter++;
+    if (def.kind === "soldier") {
+      soldiers.push({
+        uid: uid, type: type, level: level, col: col, row: row,
         x: center.x, y: center.y,
-        cd: 0
+        hp: def.hp * statMul(level), maxHp: def.hp * statMul(level),
+        cd: 0, dead: false
       });
     } else {
-      soldiers.push({
-        type: type, col: col, row: row,
-        x: center.x, y: center.y,
-        hp: def.hp, maxHp: def.hp,
-        cd: 0
+      buildings.push({
+        uid: uid, type: type, level: level, col: col, row: row,
+        x: center.x, y: center.y, cd: 0,
+        timer: def.produceInterval // 农民生产计时（塔忽略）
       });
     }
-    setHint("已部署 " + def.name);
-    selection = null;
+  }
+  function removeFieldUid(uid) {
+    for (let i = buildings.length - 1; i >= 0; i--) if (buildings[i].uid === uid) { buildings.splice(i, 1); return; }
+    for (let i = soldiers.length - 1; i >= 0; i--) if (soldiers[i].uid === uid) { soldiers.splice(i, 1); return; }
+  }
+
+  // 在格子上找同类型同等级的单位（用于合成）
+  function findMergeTarget(type, level, col, row) {
+    const def = unitDef(type);
+    if (def.kind === "soldier") {
+      for (const s of soldiers) if (!s.dead && s.col === col && s.row === row && s.type === type && s.level === level) return s;
+    } else {
+      const b = buildingAt(col, row);
+      if (b && b.type === type && b.level === level) return b;
+    }
+    return null;
+  }
+  // 抓取时：格子上任意一个部队/建筑
+  function grabUnitAt(col, row) {
+    for (const s of soldiers) if (!s.dead && s.col === col && s.row === row) return s;
+    return buildingAt(col, row);
+  }
+
+  // ---------- 商店 ----------
+  let shopStock = []; // [{type}...]
+
+  function pickRandomType() {
+    const total = CONFIG.shop.pool.reduce(function (sum, p) { return sum + p.weight; }, 0);
+    let r = Math.random() * total;
+    for (const p of CONFIG.shop.pool) {
+      r -= p.weight;
+      if (r <= 0) return p.type;
+    }
+    return CONFIG.shop.pool[0].type;
+  }
+  function refreshShop() {
+    shopStock = [];
+    const chosen = [];
+    for (let i = 0; i < CONFIG.shop.size; i++) {
+      let t = pickRandomType();
+      while (chosen.indexOf(t) >= 0) t = pickRandomType(); // 尽量不重复
+      chosen.push(t);
+      shopStock.push({ type: t });
+    }
+    renderShop();
+  }
+  function renderShop() {
+    shopItems.innerHTML = "";
+    for (const item of shopStock) {
+      const def = unitDef(item.type);
+      const div = document.createElement("div");
+      div.className = "shop-card";
+      const btn = document.createElement("button");
+      btn.textContent = "购买 " + def.cost + " 粮草";
+      btn.disabled = grain < def.cost || freeSlot() < 0;
+      btn.addEventListener("click", function () { buyFromShop(item.type); });
+      div.innerHTML = def.name + "（1 级）";
+      div.appendChild(btn);
+      shopItems.appendChild(div);
+    }
+    btnRefresh.disabled = grain < CONFIG.shop.refreshCost;
+  }
+  function buyFromShop(type) {
+    const def = unitDef(type);
+    if (grain < def.cost) { setHint("粮草不足"); return; }
+    const idx = freeSlot();
+    if (idx < 0) { setHint("背包已满（5 格），先部署或合成腾位置"); return; }
+    grain -= def.cost;
+    inventory[idx] = { type: type, level: 1 };
+    setHint("已购入 " + def.name + " → 放入背包第 " + (idx + 1) + " 格");
+    renderInventory();
+    renderShop();
     updateHud();
   }
 
-  // 尝试在鼠标所在格放置当前选中的单位
-  function tryPlaceAtMouse() {
-    if (!selection || !mouse.inside || phase !== "playing") return;
-    const cell = cellFromPoint(mouse.x, mouse.y);
-    if (!cell) return;
-    const v = validatePlace(selection, cell.c, cell.r);
-    if (v.ok) {
-      placeUnit(selection, cell.c, cell.r);
-    } else {
-      setHint(v.msg);
-    }
-  }
-
-  // ---------- 生成部署栏卡片 ----------
-  function buildCards() {
-    function addCard(type) {
-      const def = unitDef(type);
+  // ---------- 背包 ----------
+  function renderInventory() {
+    inventoryBar.innerHTML = "";
+    for (let i = 0; i < inventory.length; i++) {
       const div = document.createElement("div");
-      div.className = "card " + (type.indexOf("tower.") === 0 ? "tower" : "soldier");
-      div.innerHTML = def.name + "<br><small>" + def.cost + " 粮草</small>";
-      div.dataset.type = type;
-      div.addEventListener("mousedown", function (e) {
-        e.preventDefault();
-        if (phase !== "playing") {
-          setHint(phase === "over" ? "城破了，先点「再战一局」" : "先点「开始守城」再部署单位");
-          return;
-        }
-        if (grain < def.cost) { setHint("粮草不足，买不起 " + def.name); return; }
-        selection = type;
-        dragging = true;
-        updateHud();
-      });
-      deployBar.appendChild(div);
-      cardEls[type] = div;
+      div.className = "slot" + (inventory[i] ? " filled" : "");
+      div.dataset.index = i;
+      if (inventory[i]) {
+        const def = unitDef(inventory[i].type);
+        div.innerHTML = def.name + "<br><span class='lv'>Lv" + inventory[i].level + "</span>";
+        div.addEventListener("mousedown", function (e) {
+          e.preventDefault();
+          if (!activePhase()) {
+            setHint(phase === "ready" ? "先点「开始守城」再部署" : "游戏已结束，先点「再战一局」");
+            return;
+          }
+          startDragFromInv(i);
+        });
+      } else {
+        div.innerHTML = "<span class='empty'>空</span>";
+      }
+      inventoryBar.appendChild(div);
     }
-    for (const key in CONFIG.towers) addCard("tower." + key);
-    for (const key in CONFIG.soldiers) addCard("soldier." + key);
   }
 
-  // ---------- 敌军 ----------
+  // ---------- 拖拽 ----------
+  function startDragFromInv(slot) {
+    const u = inventory[slot];
+    if (!u) return;
+    drag = { type: u.type, level: u.level, from: "inv", slot: slot };
+  }
+  function startDragFromField(unit) {
+    drag = { type: unit.type, level: unit.level, from: "field", uid: unit.uid };
+  }
+  function clearDrag() { drag = null; }
+
+  function removeDragSource() {
+    if (!drag) return;
+    if (drag.from === "inv") {
+      inventory[drag.slot] = null;
+      renderInventory();
+    } else {
+      removeFieldUid(drag.uid);
+    }
+  }
+
+  // 松开鼠标：决定“放到哪 / 合成 / 取消”
+  function performDrop(clientX, clientY) {
+    if (!drag) return;
+    const d = drag;
+
+    // 1) 松在背包格子上？
+    const el = document.elementFromPoint(clientX, clientY);
+    const slotEl = el && el.closest ? el.closest(".slot") : null;
+    if (slotEl) {
+      const idx = parseInt(slotEl.dataset.index, 10);
+      const tgt = inventory[idx];
+      if (d.from === "inv" && d.slot === idx) { clearDrag(); return; } // 放回原格
+
+      if (tgt && tgt.type === d.type && tgt.level === d.level) {
+        if (d.level >= CONFIG.maxLevel) { setHint("已满级，不能再合成"); clearDrag(); return; }
+        removeDragSource();
+        inventory[idx] = { type: d.type, level: d.level + 1 };
+        setHint("合成成功！" + unitDef(d.type).name + " → Lv" + (d.level + 1));
+        renderInventory(); updateHud();
+        clearDrag(); return;
+      }
+      if (!tgt) {
+        removeDragSource();
+        inventory[idx] = { type: d.type, level: d.level };
+        renderInventory(); updateHud();
+        setHint("已放入背包第 " + (idx + 1) + " 格");
+        clearDrag(); return;
+      }
+      setHint("只有相同类型、相同等级的单位才能合成");
+      clearDrag(); return;
+    }
+
+    // 2) 松在画布格子上？
+    const rect = canvas.getBoundingClientRect();
+    const cell = cellFromPoint(clientX - rect.left, clientY - rect.top);
+    if (cell) {
+      const tgt = findMergeTarget(d.type, d.level, cell.c, cell.r);
+      if (tgt) {
+        if (d.level >= CONFIG.maxLevel) { setHint("已满级，不能再合成"); clearDrag(); return; }
+        if (d.from === "field" && d.uid === tgt.uid) { clearDrag(); return; } // 原地放下
+        removeDragSource();
+        removeFieldUid(tgt.uid);
+        addUnitToField(d.type, d.level + 1, cell.c, cell.r);
+        setHint("合成成功！" + unitDef(d.type).name + " → Lv" + (d.level + 1));
+        updateHud();
+        clearDrag(); return;
+      }
+      const v = validatePlace(d.type, d.level, cell.c, cell.r, d.from === "field");
+      if (v.ok) {
+        removeDragSource();
+        addUnitToField(d.type, d.level, cell.c, cell.r);
+        setHint("已部署 " + unitDef(d.type).name);
+        updateHud();
+        clearDrag(); return;
+      }
+      setHint(v.msg);
+      clearDrag(); return;
+    }
+
+    // 3) 其它地方：取消
+    clearDrag();
+  }
+
+  // ---------- 敌军与波次 ----------
   function spawnEnemy() {
     const first = CONFIG.path[0];
     const pos = cellCenter(first.c, first.r);
     enemies.push({
-      at: 0,                 // 当前所在/正走出的路线点下标
-      x: pos.x, y: pos.y,
-      hp: CONFIG.enemy.hp, maxHp: CONFIG.enemy.hp,
-      fighting: false,       // 是否正被士兵挡住交战
-      attackCd: 0,
-      dead: false
+      at: 0, x: pos.x, y: pos.y,
+      hp: CONFIG.enemy.hp * waveHpMul, maxHp: CONFIG.enemy.hp * waveHpMul,
+      fighting: false, attackCd: 0, dead: false
     });
   }
-
   function arriveGate(e) {
     gateHp -= 1;
     if (gateHp <= 0) {
       gateHp = 0;
       phase = "over";
-      btnStart.textContent = "再战一局";
       updateHud();
     }
   }
-
   function damageEnemy(e, dmg) {
     e.hp -= dmg;
     if (e.hp <= 0 && !e.dead) {
       e.dead = true;
-      grain += CONFIG.enemy.bounty; // 消灭敌军得粮草
+      grain += CONFIG.enemy.bounty;
     }
   }
-
-  // 某格上有哪些没死的士兵
-  function soldiersOnCell(cell) {
-    const out = [];
-    for (const s of soldiers) {
-      if (!s.dead && s.col === cell.c && s.row === cell.r) out.push(s);
-    }
-    return out;
-  }
-
-  // 找距离 (x,y) 最近、且在射程内的敌人（射程单位：格）
   function nearestEnemy(x, y, rangeCells) {
     const s = getCellSize();
     const rangePx = rangeCells * s;
-    let best = null;
-    let bestDist = Infinity;
+    let best = null, bestDist = Infinity;
     for (const e of enemies) {
       if (e.dead) continue;
-      const dx = e.x - x;
-      const dy = e.y - y;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d <= rangePx && d < bestDist) {
-        bestDist = d;
-        best = e;
-      }
+      const dx = e.x - x, dy = e.y - y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= rangePx && dist < bestDist) { bestDist = dist; best = e; }
     }
     return best;
   }
 
-  // ---------- 更新逻辑 ----------
-  function update(dt) {
-    if (phase !== "playing") return;
+  function waveCount(n) { return CONFIG.waves.baseCount + (n - 1) * CONFIG.waves.countPerWave; }
 
-    // 1) 定时出生敌军
-    spawnTimer -= dt;
-    if (spawnTimer <= 0) {
-      spawnEnemy();
-      spawnTimer = CONFIG.enemy.spawnInterval;
+  function beginWave(n) {
+    waveIndex = n;
+    phase = "battle";
+    waveToSpawn = waveCount(n);
+    waveSpawnTimer = 0.3;
+    waveHpMul = 1 + CONFIG.waves.hpGrowth * (n - 1);
+    updateHud();
+  }
+
+  function onWaveCleared() {
+    const bonus = CONFIG.waves.bonusBase + waveIndex * CONFIG.waves.bonusPerWave;
+    grain += bonus;
+    setHint("第 " + waveIndex + " 波守住！奖励 " + bonus + " 粮草");
+    if (waveIndex >= CONFIG.waves.total) {
+      phase = "win";
+    } else {
+      phase = "between";
+      prepTimer = CONFIG.waves.prepTime;
+    }
+    updateHud();
+  }
+
+  // ---------- 每帧更新 ----------
+  function update(dt) {
+    if (phase === "between") {
+      prepTimer -= dt;
+      if (prepTimer <= 0) beginWave(waveIndex + 1);
+      updateHud();
+      return;
+    }
+    if (phase !== "battle") return;
+
+    // 出生本波敌军
+    if (waveToSpawn > 0) {
+      waveSpawnTimer -= dt;
+      if (waveSpawnTimer <= 0) {
+        spawnEnemy();
+        waveToSpawn--;
+        waveSpawnTimer = CONFIG.enemy.spawnInterval;
+      }
     }
 
-    updateTowers(dt);
+    updateBuildings(dt);
     updateSoldiers(dt);
     updateEnemies(dt);
     updateTracers(dt);
 
-    // 清掉死掉的单位（遍历删除放最后统一处理更安全）
     enemies = enemies.filter(function (e) { return !e.dead; });
     soldiers = soldiers.filter(function (s) { return !s.dead; });
     tracers = tracers.filter(function (t) { return t.life > 0; });
 
+    // 本波结束判定：全出生完 + 场上没有敌人（死的/进城的都算清完）
+    if (waveToSpawn <= 0 && enemies.length === 0 && phase === "battle") {
+      onWaveCleared();
+    }
     updateHud();
   }
 
-  // 塔：自动攻击射程内最近的敌人
-  function updateTowers(dt) {
-    for (const t of towers) {
-      t.cd -= dt;
-      if (t.cd > 0) continue;
-      const def = CONFIG.towers[t.type.slice(6)];
-      const target = nearestEnemy(t.x, t.y, def.range);
+  function updateBuildings(dt) {
+    for (const b of buildings) {
+      const def = unitDef(b.type);
+      if (def.kind === "farmer") {
+        // 农民产粮
+        b.timer -= dt;
+        if (b.timer <= 0) {
+          grain += def.produce[b.level - 1];
+          b.timer = def.produceInterval;
+        }
+        continue;
+      }
+      // 塔自动攻击
+      b.cd -= dt;
+      if (b.cd > 0) continue;
+      const target = nearestEnemy(b.x, b.y, def.range);
       if (!target) continue;
-      damageEnemy(target, def.damage);
-      t.cd = def.cooldown;
-      tracers.push({ x1: t.x, y1: t.y, x2: target.x, y2: target.y, life: 0.12 });
+      damageEnemy(target, def.damage * statMul(b.level));
+      b.cd = def.cooldown;
+      tracers.push({ x1: b.x, y1: b.y, x2: target.x, y2: target.y, life: 0.12 });
     }
   }
 
-  // 士兵：近战打面前的敌人；弓兵打射程内最近的敌人
   function updateSoldiers(dt) {
     for (const s of soldiers) {
       if (s.dead) continue;
       s.cd -= dt;
       if (s.cd > 0) continue;
-      const def = CONFIG.soldiers[s.type.slice(8)];
+      const def = unitDef(s.type);
+      const dmg = def.damage * statMul(s.level);
       let target = null;
-
       if (def.ranged) {
         target = nearestEnemy(s.x, s.y, def.range);
       } else {
-        // 近战：只打正停在本格交战的敌人
         for (const e of enemies) {
           if (e.dead || !e.fighting) continue;
           const cell = CONFIG.path[e.at];
           if (cell.c === s.col && cell.r === s.row) { target = e; break; }
         }
       }
-
       if (target) {
-        damageEnemy(target, def.damage);
+        damageEnemy(target, dmg);
         s.cd = def.attackInterval;
         tracers.push({ x1: s.x, y1: s.y, x2: target.x, y2: target.y, life: 0.12 });
       }
     }
   }
 
-  // 敌军：走路 / 被挡停交战 / 到城门
   function updateEnemies(dt) {
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       if (e.dead) continue;
 
       if (e.fighting) {
-        // 被士兵挡住：互打
         e.attackCd -= dt;
         const defs = soldiersOnCell(CONFIG.path[e.at]);
         if (defs.length === 0) {
-          e.fighting = false; // 挡路的士兵都死了，继续走
+          e.fighting = false;
         } else if (e.attackCd <= 0) {
           defs[0].hp -= CONFIG.enemy.damage;
           if (defs[0].hp <= 0) defs[0].dead = true;
@@ -299,32 +479,23 @@
         continue;
       }
 
-      // 走路中：如果当前格有士兵，停下交战
       const here = soldiersOnCell(CONFIG.path[e.at]);
-      if (here.length > 0) {
-        e.fighting = true;
-        continue;
-      }
+      if (here.length > 0) { e.fighting = true; continue; }
 
-      // 走到最后一个点 = 抵达城门
       if (e.at >= CONFIG.path.length - 1) {
         arriveGate(e);
         enemies.splice(i, 1);
         continue;
       }
 
-      // 朝下一个路线点移动
       const next = CONFIG.path[e.at + 1];
       const dest = cellCenter(next.c, next.r);
-      const dx = dest.x - e.x;
-      const dy = dest.y - e.y;
+      const dx = dest.x - e.x, dy = dest.y - e.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const step = CONFIG.enemy.speed * getCellSize() * dt;
-
       if (dist <= step) {
         e.at += 1;
-        e.x = dest.x;
-        e.y = dest.y;
+        e.x = dest.x; e.y = dest.y;
         if (e.at >= CONFIG.path.length - 1) {
           arriveGate(e);
           enemies.splice(i, 1);
@@ -338,9 +509,7 @@
     }
   }
 
-  function updateTracers(dt) {
-    for (const t of tracers) t.life -= dt;
-  }
+  function updateTracers(dt) { for (const t of tracers) t.life -= dt; }
 
   // ---------- 绘制 ----------
   function drawHpBar(x, y, w, h, ratio, color) {
@@ -350,17 +519,23 @@
     if (ratio > 0) ctx.fillRect(x, y, w * ratio, h);
   }
 
-  function drawTowers() {
+  function drawBuildings() {
     const s = getCellSize();
-    for (const t of towers) {
-      const def = CONFIG.towers[t.type.slice(6)];
+    for (const b of buildings) {
+      const def = unitDef(b.type);
       ctx.fillStyle = def.color;
-      ctx.fillRect(t.x - s * 0.33, t.y - s * 0.33, s * 0.66, s * 0.66);
+      if (def.kind === "farmer") {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, s * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(b.x - s * 0.33, b.y - s * 0.33, s * 0.66, s * 0.66);
+      }
       ctx.fillStyle = "#ffffff";
-      ctx.font = s * 0.3 + "px KaiTi, serif";
+      ctx.font = s * 0.26 + "px KaiTi, serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(def.short, t.x, t.y);
+      ctx.fillText(def.short + (b.level > 1 ? b.level : ""), b.x, b.y);
     }
   }
 
@@ -368,16 +543,16 @@
     const s = getCellSize();
     for (const sld of soldiers) {
       if (sld.dead) continue;
-      const def = CONFIG.soldiers[sld.type.slice(8)];
+      const def = unitDef(sld.type);
       ctx.fillStyle = def.color;
       ctx.beginPath();
       ctx.arc(sld.x, sld.y, s * 0.3, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#ffffff";
-      ctx.font = s * 0.28 + "px KaiTi, serif";
+      ctx.font = s * 0.26 + "px KaiTi, serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(def.short, sld.x, sld.y);
+      ctx.fillText(def.short + (sld.level > 1 ? sld.level : ""), sld.x, sld.y);
       if (sld.hp < sld.maxHp) {
         drawHpBar(sld.x - s * 0.3, sld.y - s * 0.48, s * 0.6, 5,
           Math.max(0, sld.hp / sld.maxHp), "#4caf50");
@@ -413,73 +588,73 @@
     ctx.globalAlpha = 1;
   }
 
-  // 画“正在放置”的提示：目标格高亮 + 半透明单位影子
-  function drawPlacement() {
-    if (!selection || !mouse.inside) return;
+  function drawGateHpBar() {
+    const s = getCellSize();
+    const end = CONFIG.path[CONFIG.path.length - 1];
+    const ec = cellCenter(end.c, end.r);
+    const w = s * 0.9, h = Math.max(6, s * 0.12);
+    const x = ec.x - w / 2, y = ec.y - s * 0.78;
+    const ratio = Math.max(0, Math.min(1, gateHp / CONFIG.gateHp));
+    drawHpBar(x, y, w, h, ratio, ratio > 0.5 ? "#4caf50" : ratio > 0.25 ? "#f1c40f" : "#e74c3c");
+  }
+
+  // 拖拽预览：目标格高亮 + 半透明影子
+  function drawDragPreview() {
+    if (!drag || !mouse.inside) return;
     const cell = cellFromPoint(mouse.x, mouse.y);
     if (!cell) return;
     const s = getCellSize();
-    const v = validatePlace(selection, cell.c, cell.r);
-
-    // 高亮格子
-    ctx.fillStyle = v.ok
-      ? (selection.indexOf("soldier.") === 0 ? "rgba(52,152,219,0.45)" : "rgba(46,204,113,0.45)")
-      : "rgba(231,76,60,0.45)";
+    const fromField = drag.from === "field";
+    // 能合成吗？
+    const canMerge = findMergeTarget(drag.type, drag.level, cell.c, cell.r);
+    const v = canMerge ? { ok: true } : validatePlace(drag.type, drag.level, cell.c, cell.r, fromField);
+    ctx.fillStyle = canMerge
+      ? "rgba(241,196,15,0.55)"            // 金色 = 可合成
+      : v.ok
+        ? (unitDef(drag.type).kind === "soldier" ? "rgba(52,152,219,0.45)" : "rgba(46,204,113,0.45)")
+        : "rgba(231,76,60,0.45)";
     ctx.fillRect(cell.c * s, cell.r * s, s, s);
 
-    // 半透明单位影子
-    const def = unitDef(selection);
+    const def = unitDef(drag.type);
+    const cx = cell.c * s + s / 2, cy = cell.r * s + s / 2;
     ctx.globalAlpha = 0.6;
     ctx.fillStyle = def.color;
-    const cx = cell.c * s + s / 2;
-    const cy = cell.r * s + s / 2;
-    if (selection.indexOf("tower.") === 0) {
+    if (def.kind === "soldier") {
+      ctx.beginPath();
+      ctx.arc(cx, cy, s * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (def.kind === "farmer") {
+      ctx.beginPath();
+      ctx.arc(cx, cy, s * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
       ctx.fillRect(cx - s * 0.33, cy - s * 0.33, s * 0.66, s * 0.66);
-      // 显示射程圈
       ctx.beginPath();
       ctx.arc(cx, cy, def.range * s, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(255,255,255,0.7)";
       ctx.lineWidth = 1.5;
       ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.arc(cx, cy, s * 0.3, 0, Math.PI * 2);
-      ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
 
-  // 画城门上方的耐久血条（颜色：绿→黄→红）
-  function drawGateHpBar() {
-    const s = getCellSize();
-    const end = CONFIG.path[CONFIG.path.length - 1];
-    const ec = cellCenter(end.c, end.r);
-    const w = s * 0.9;
-    const h = Math.max(6, s * 0.12);
-    const x = ec.x - w / 2;
-    const y = ec.y - s * 0.78;
-    const ratio = Math.max(0, Math.min(1, gateHp / CONFIG.gateHp));
-    drawHpBar(x, y, w, h, ratio, ratio > 0.5 ? "#4caf50" : ratio > 0.25 ? "#f1c40f" : "#e74c3c");
-  }
-
   function draw() {
     drawMap(ctx);
-    drawTowers();
+    drawBuildings();
     drawSoldiers();
     drawEnemies();
     drawTracers();
     drawGateHpBar();
-    drawPlacement();
+    drawDragPreview();
 
-    // 城破提示
-    if (phase === "over") {
+    if (phase === "over" || phase === "win") {
       ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#e74c3c";
+      ctx.fillStyle = phase === "win" ? "#f1c40f" : "#e74c3c";
       ctx.font = "52px KaiTi, serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("城破……", canvas.width / 2, canvas.height / 2 - 20);
+      ctx.fillText(phase === "win" ? "守城成功！" : "城破……", canvas.width / 2, canvas.height / 2 - 20);
       ctx.fillStyle = "#f0d9a0";
       ctx.font = "22px KaiTi, serif";
       ctx.fillText("点击「再战一局」重新开始", canvas.width / 2, canvas.height / 2 + 30);
@@ -488,12 +663,11 @@
 
   // ---------- 游戏循环 ----------
   let lastTime = 0;
-
   function loop(now) {
     let dt = (now - lastTime) / 1000;
     if (dt > 0.05) dt = 0.05;
     lastTime = now;
-    if (phase === "playing") update(dt);
+    update(dt);
     draw();
     requestAnimationFrame(loop);
   }
@@ -501,81 +675,87 @@
   // ---------- 开始 / 重开 ----------
   function startGame() {
     enemies = [];
-    towers = [];
+    buildings = [];
     soldiers = [];
     tracers = [];
+    inventory = new Array(CONFIG.inventorySize).fill(null);
     gateHp = CONFIG.gateHp;
     grain = CONFIG.startGrain;
-    phase = "playing";
-    spawnTimer = 0;
-    selection = null;
-    btnStart.textContent = "战斗中…";
+    waveIndex = 0;
+    phase = "ready";
+    drag = null;
+    renderInventory();
+    renderShop();
     updateHud();
   }
 
   btnStart.addEventListener("click", function () {
-    if (phase === "ready" || phase === "over") startGame();
+    if (phase === "ready") beginWave(1);
+    else if (phase === "between") beginWave(waveIndex + 1);
+    else if (phase === "over" || phase === "win") { startGame(); beginWave(1); }
   });
 
-  // ---------- 鼠标交互（拖放部署） ----------
+  btnRefresh.addEventListener("click", function () {
+    if (grain < CONFIG.shop.refreshCost) { setHint("粮草不足，刷不起商店"); return; }
+    grain -= CONFIG.shop.refreshCost;
+    refreshShop();
+    updateHud();
+    setHint("商店已刷新");
+  });
+
+  // ---------- 鼠标交互 ----------
   function canvasPointFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
   window.addEventListener("mousemove", function (e) {
-    const pt = canvasPointFromEvent(e);
     const rect = canvas.getBoundingClientRect();
-    mouse.x = pt.x;
-    mouse.y = pt.y;
-    mouse.inside = pt.x >= 0 && pt.y >= 0 && pt.x <= rect.width && pt.y <= rect.height;
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+    mouse.inside = mouse.x >= 0 && mouse.y >= 0 && mouse.x <= rect.width && mouse.y <= rect.height;
   });
 
-  window.addEventListener("mouseup", function () {
-    dragging = false;
-    if (selection && mouse.inside) tryPlaceAtMouse();
+  // 从场上“拿起”单位
+  canvas.addEventListener("mousedown", function (e) {
+    if (!activePhase() || drag) return;
+    const pt = canvasPointFromEvent(e);
+    const cell = cellFromPoint(pt.x, pt.y);
+    if (!cell) return;
+    const u = grabUnitAt(cell.c, cell.r);
+    if (u) {
+      startDragFromField(u);
+      e.preventDefault();
+    }
+  });
+
+  window.addEventListener("mouseup", function (e) {
+    if (drag) performDrop(e.clientX, e.clientY);
   });
 
   window.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") {
-      selection = null;
-      dragging = false;
-      updateHud();
-    }
+    if (e.key === "Escape") { drag = null; }
   });
-
   canvas.addEventListener("contextmenu", function (e) {
     e.preventDefault();
-    selection = null;
-    dragging = false;
-    updateHud();
+    drag = null;
   });
 
-  // 选中卡片时高亮
-  function refreshCardSelection() {
-    for (const type in cardEls) {
-      cardEls[type].classList.toggle("selected", type === selection);
-    }
-  }
-  const origUpdateHud = updateHud;
-  updateHud = function () {
-    origUpdateHud();
-    refreshCardSelection();
-  };
-
   // ---------- 启动 ----------
-  buildCards(); // 生成部署栏卡片（很重要，之前漏调用导致部署栏空白）
-
   const query = new URLSearchParams(window.location.search);
   const simulateSec = parseFloat(query.get("simulate") || "0");
 
-  if (query.has("autostart") || simulateSec > 0) startGame();
+  renderInventory();
+  refreshShop();
 
-  // 测试参数：自动摆一组标准防守（塔+盾兵+弓兵），方便自动化验证战斗
+  if (query.has("autostart") || simulateSec > 0) { startGame(); beginWave(1); }
+
+  // 自动化测试：直接摆标准防守（跳过商店/背包）
   if (query.has("autodef")) {
-    placeUnit("tower.archer", 1, 3);
-    placeUnit("soldier.shield", 4, 4);
-    placeUnit("soldier.archer", 7, 1);
+    addUnitToField("tower.archer", 1, 1, 3);
+    addUnitToField("farmer.farmer", 1, 2, 3);
+    addUnitToField("soldier.shield", 1, 4, 4);
+    addUnitToField("soldier.archer", 1, 7, 1);
   }
 
   drawMap(ctx);
@@ -587,8 +767,7 @@
       update(dt);
     }
     draw();
-    // 测试“再战一局”：若模拟结束时已城破，重开并重画一帧
-    if (phase === "over" && query.has("restartAfterOver")) {
+    if ((phase === "over" || phase === "win") && query.has("restartAfterOver")) {
       startGame();
       draw();
     }
@@ -596,5 +775,3 @@
     requestAnimationFrame(loop);
   }
 })();
-
-

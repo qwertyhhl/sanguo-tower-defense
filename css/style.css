@@ -1,4 +1,4 @@
-/* 三国守城 - 基础样式（M2：增加部署栏） */
+/* 三国守城 - 基础样式（M3：商店 + 背包） */
 body {
   margin: 0;
   background: #1a120b;
@@ -8,8 +8,8 @@ body {
 }
 
 h1#game-title {
-  margin: 12px 0 6px;
-  font-size: 28px;
+  margin: 10px 0 6px;
+  font-size: 26px;
   letter-spacing: 10px;
 }
 
@@ -18,20 +18,21 @@ h1#game-title {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 26px;
+  gap: 22px;
   max-width: 960px;
   margin: 0 auto 8px;
   padding: 6px 14px;
   background: #2a1f12;
   border: 1px solid #5a4a2a;
   border-radius: 8px;
-  font-size: 17px;
+  font-size: 16px;
+  flex-wrap: wrap;
 }
 .hud-item b { color: #ffd97a; }
 
 #btn-start {
   font-family: inherit;
-  font-size: 17px;
+  font-size: 16px;
   padding: 5px 16px;
   background: #8c1f1f;
   color: #ffe9b0;
@@ -50,32 +51,80 @@ canvas#gameCanvas {
   margin: 0 auto;
 }
 
-/* 底部部署栏 */
-#deploy-bar {
+/* 商店 */
+#shop-panel {
   display: flex;
   justify-content: center;
-  gap: 14px;
-  margin: 10px auto 4px;
+  align-items: center;
+  gap: 12px;
+  max-width: 960px;
+  margin: 8px auto 4px;
+  flex-wrap: wrap;
 }
-.card {
-  width: 108px;
-  padding: 8px 4px;
-  background: #2a1f12;
-  border: 2px solid #5a4a2a;
-  border-radius: 10px;
+#shop-items { display: flex; gap: 10px; }
+.shop-card {
+  width: 120px;
+  padding: 6px 4px;
+  background: #241a0e;
+  border: 2px solid #8c6d3f;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1.35;
+}
+.shop-card button {
+  margin-top: 4px;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 2px 12px;
+  background: #8c1f1f;
+  color: #ffe9b0;
+  border: 1px solid #c0392b;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.shop-card button:disabled { opacity: 0.5; cursor: default; }
+
+#btn-refresh {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 6px 14px;
+  background: #4a3520;
+  color: #ffe9b0;
+  border: 1px solid #8c6d3f;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#btn-refresh:disabled { opacity: 0.5; cursor: default; }
+
+/* 背包 */
+#inventory-bar {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px auto;
+}
+.slot {
+  width: 72px;
+  height: 62px;
+  background: #241a0e;
+  border: 2px dashed #5a4a2a;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  font-size: 14px;
+  line-height: 1.2;
   cursor: grab;
   user-select: none;
-  font-size: 16px;
-  line-height: 1.4;
 }
-.card small { color: #ffd97a; font-size: 13px; }
-.card.tower { border-color: #2980b9; }
-.card.soldier { border-color: #229954; }
-.card.selected { outline: 3px solid #ffe9b0; }
-.card.disabled { opacity: 0.45; cursor: not-allowed; }
+.slot.filled { border-style: solid; border-color: #c9a86a; cursor: grab; }
+.slot .lv { color: #ffd97a; font-size: 12px; }
+.slot .empty { color: #6b5a3a; font-size: 13px; }
 
 #deploy-hint {
-  font-size: 14px;
+  font-size: 13px;
   color: #b8a276;
-  margin: 2px auto 8px;
+  margin: 2px auto 10px;
+  max-width: 900px;
 }
