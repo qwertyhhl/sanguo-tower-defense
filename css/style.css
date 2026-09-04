@@ -176,3 +176,24 @@ canvas#gameCanvas {
 .slot .lv { color: #ffd97a; font-size: 11px; }
 .slot .empty { color: #6b5a3a; font-size: 12px; }
 
+/* 悬浮提示（固定在底部中间，不占页面高度） */
+#deploy-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  background: rgba(20, 16, 10, 0.88);
+  color: #ffd97a;
+  font-size: 13px;
+  padding: 4px 14px;
+  border-radius: 14px;
+  border: 1px solid #8c6d3f;
+  pointer-events: none;
+  z-index: 50;
+  max-width: 80vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+

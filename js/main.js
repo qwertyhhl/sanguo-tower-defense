@@ -53,6 +53,7 @@
   function activePhase() { return phase === "ready" || phase === "battle" || phase === "between"; }
 
   function setHint(text) {
+    if (!hintEl) return; // 提示框不存在时静默（不中断游戏）
     hintEl.textContent = text;
     if (hintTimer) clearTimeout(hintTimer);
     hintTimer = setTimeout(function () {
@@ -814,6 +815,7 @@
     requestAnimationFrame(loop);
   }
 })();
+
 
 
 
