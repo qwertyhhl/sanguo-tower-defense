@@ -145,9 +145,15 @@
     }
   });
 
+  // 调试开关：地址栏加 ?autostart=1 可自动开局（方便自动化测试，正常游玩可忽略）
+  if (new URLSearchParams(window.location.search).has("autostart")) {
+    startGame();
+  }
+
   // ---------- 启动 ----------
   drawMap(ctx);
   updateHud();
   requestAnimationFrame(loop);
 })();
+
 
