@@ -19,18 +19,25 @@
 
   <canvas id="gameCanvas" width="960" height="540"></canvas>
 
-  <!-- 商店：随机 3 件 + 刷新 -->
+  <!-- 商店：云顶式 5 件 + 刷新 + 锁定 -->
   <div id="shop-panel">
     <div id="shop-items"></div>
-    <button id="btn-refresh" type="button">刷新商店（10 粮草）</button>
+    <div id="shop-buttons">
+      <button id="btn-refresh" type="button">刷新商店（10 粮草）</button>
+      <button id="btn-lock" type="button">锁定商店</button>
+    </div>
   </div>
 
   <!-- 背包：5 格 -->
   <div id="inventory-bar"></div>
-  <div id="deploy-hint">点商店「买」→ 单位进背包 → 把背包里的单位拖到地图上；两个同类型同等级单位拖一起可合成升级</div>
+
+  <!-- 出售区：拖单位到这里卖掉换粮草 -->
+  <div id="sell-zone">出售区：把背包或场上的单位拖到这里卖掉换粮草（1级=造价，2级=2倍造价…）</div>
+  <div id="deploy-hint">商店每波自动刷新（可锁定）→ 买单位进背包 → 拖到地图部署；同类型同等级拖一起合成升级</div>
 
   <script src="js/config.js"></script>
   <script src="js/map.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
+

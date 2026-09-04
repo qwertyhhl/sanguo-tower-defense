@@ -84,7 +84,9 @@ canvas#gameCanvas {
 }
 .shop-card button:disabled { opacity: 0.5; cursor: default; }
 
-#btn-refresh {
+#shop-buttons { display: flex; flex-direction: column; gap: 8px; }
+
+#btn-refresh, #btn-lock {
   font-family: inherit;
   font-size: 15px;
   padding: 6px 14px;
@@ -94,7 +96,8 @@ canvas#gameCanvas {
   border-radius: 6px;
   cursor: pointer;
 }
-#btn-refresh:disabled { opacity: 0.5; cursor: default; }
+#btn-refresh:disabled, #btn-lock:disabled { opacity: 0.5; cursor: default; }
+#btn-lock.locked { background: #6b4a1f; border-color: #f1c40f; }
 
 /* 背包 */
 #inventory-bar {
@@ -122,9 +125,21 @@ canvas#gameCanvas {
 .slot .lv { color: #ffd97a; font-size: 12px; }
 .slot .empty { color: #6b5a3a; font-size: 13px; }
 
+#sell-zone {
+  max-width: 960px;
+  margin: 4px auto;
+  padding: 8px;
+  background: #241a0e;
+  border: 2px dashed #a33;
+  border-radius: 8px;
+  color: #b8a276;
+  font-size: 14px;
+}
+
 #deploy-hint {
   font-size: 13px;
   color: #b8a276;
   margin: 2px auto 10px;
   max-width: 900px;
 }
+

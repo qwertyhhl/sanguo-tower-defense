@@ -36,6 +36,7 @@
   const btnStart = document.getElementById("btn-start");
   const shopItems = document.getElementById("shop-items");
   const btnRefresh = document.getElementById("btn-refresh");
+  const btnLock = document.getElementById("btn-lock");
   const inventoryBar = document.getElementById("inventory-bar");
   const hintEl = document.getElementById("deploy-hint");
 
@@ -76,6 +77,8 @@
     else if (phase === "between") btnStart.textContent = "开始第 " + (waveIndex + 1) + " 波";
     else if (phase === "over" || phase === "win") btnStart.textContent = "再战一局";
     else btnStart.textContent = "进攻中…";
+    btnLock.textContent = shopLocked ? "已锁定（点此解锁）" : "锁定商店（下波自动刷新）";
+    btnLock.classList.toggle("locked", shopLocked);
   }
 
   // ---------- 地图格子工具 ----------
@@ -157,6 +160,7 @@
 
   // ---------- 商店 ----------
   let shopStock = []; // [{type}...]
+  let shopLocked = false; // 云顶式：锁定时下一波不自动刷新
 
   function pickRandomType() {
     const total = CONFIG.shop.pool.reduce(function (sum, p) { return sum + p.weight; }, 0);
@@ -167,34 +171,32 @@
     }
     return CONFIG.shop.pool[0].type;
   }
+  // 云顶式：每次刷新都是全新的 5 个（允许重复）
   function refreshShop() {
     shopStock = [];
-    const chosen = [];
     for (let i = 0; i < CONFIG.shop.size; i++) {
-      let t = pickRandomType();
-      while (chosen.indexOf(t) >= 0) t = pickRandomType(); // 尽量不重复
-      chosen.push(t);
-      shopStock.push({ type: t });
+      shopStock.push({ type: pickRandomType() });
     }
     renderShop();
   }
   function renderShop() {
     shopItems.innerHTML = "";
-    for (const item of shopStock) {
+    for (let i = 0; i < shopStock.length; i++) {
+      const item = shopStock[i];
       const def = unitDef(item.type);
       const div = document.createElement("div");
       div.className = "shop-card";
       const btn = document.createElement("button");
       btn.textContent = "购买 " + def.cost + " 粮草";
       btn.disabled = grain < def.cost || freeSlot() < 0;
-      btn.addEventListener("click", function () { buyFromShop(item.type); });
+      btn.addEventListener("click", function () { buyFromShop(item.type, i); });
       div.innerHTML = def.name + "（1 级）";
       div.appendChild(btn);
       shopItems.appendChild(div);
     }
     btnRefresh.disabled = false; // 商店随时可刷新（粮草不够时点了会提示）
   }
-  function buyFromShop(type) {
+  function buyFromShop(type, index) {
     if (phase === "over" || phase === "win") { setHint("游戏已结束，先点「再战一局」"); return; }
     const def = unitDef(type);
     if (grain < def.cost) { setHint("粮草不足"); return; }
@@ -202,6 +204,7 @@
     if (idx < 0) { setHint("背包已满（5 格），先部署或合成腾位置"); return; }
     grain -= def.cost;
     inventory[idx] = { type: type, level: 1 };
+    shopStock.splice(index, 1); // 买走一格，货架空一格，下次刷新才补（云顶式）
     setHint("已购入 " + def.name + " → 放入背包第 " + (idx + 1) + " 格");
     renderInventory();
     renderShop();
@@ -258,6 +261,21 @@
   function performDrop(clientX, clientY) {
     if (!drag) return;
     const d = drag;
+
+    // 0) 松在“出售区”？
+    const dropEl = document.elementFromPoint(clientX, clientY);
+    const inSell = dropEl && dropEl.closest ? !!dropEl.closest("#sell-zone") : false;
+    if (inSell) {
+      if (phase === "over" || phase === "win") { setHint("游戏已结束，先点「再战一局」"); clearDrag(); return; }
+      const sdef = unitDef(d.type);
+      const value = sdef.cost * Math.pow(2, d.level - 1); // 卖回本钱
+      removeDragSource();
+      grain += value;
+      setHint("已出售 " + sdef.name + " Lv" + d.level + " → +" + value + " 粮草");
+      updateHud();
+      clearDrag();
+      return;
+    }
 
     // 1) 松在背包格子上？
     const el = document.elementFromPoint(clientX, clientY);
@@ -363,6 +381,7 @@
     waveToSpawn = waveCount(n);
     waveSpawnTimer = 0.3;
     waveHpMul = 1 + CONFIG.waves.hpGrowth * (n - 1);
+    if (!shopLocked) refreshShop(); // 云顶式：每波开始自动刷新商店（锁定则保留）
     updateHud();
   }
 
@@ -706,6 +725,13 @@
     setHint("商店已刷新");
   });
 
+  // 锁定商店：锁定后下一波开始不会自动刷新
+  btnLock.addEventListener("click", function () {
+    shopLocked = !shopLocked;
+    updateHud();
+    setHint(shopLocked ? "商店已锁定：下一波不会自动刷新" : "商店已解锁：下一波开始时自动刷新");
+  });
+
   // ---------- 鼠标交互 ----------
   function canvasPointFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
@@ -778,4 +804,6 @@
     requestAnimationFrame(loop);
   }
 })();
+
+
 

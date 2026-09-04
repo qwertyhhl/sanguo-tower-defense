@@ -30,7 +30,7 @@ const CONFIG = {
 
   // 商店
   shop: {
-    size: 3,            // 每次随机上架几件
+    size: 5,            // 每次随机上架几件（云顶式：5 个）
     refreshCost: 10,    // 刷新花费
     pool: [             // 商品池（type + 权重）
       { type: "soldier.shield", weight: 3 },
@@ -98,3 +98,4 @@ const CONFIG = {
     }
   }
 };
+
