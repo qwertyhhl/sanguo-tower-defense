@@ -1,4 +1,4 @@
-/* 三国守城 - 736 统一列宽样式（商店宽度 = 地图宽度） */
+/* 三国守城 - 960 设计尺寸 + 整页自适应缩放 */
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -8,34 +8,33 @@ body {
   text-align: center;
 }
 
-/* 顶部状态栏（标题也在里面，宽度与地图一致） */
+/* 顶部状态栏（标题并入，宽度与地图一致） */
 #hud {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 14px;
-  width: 736px;
-  max-width: 96vw;
-  margin: 2px auto;
-  padding: 3px 10px;
+  gap: 22px;
+  width: 960px;
+  margin: 6px auto;
+  padding: 5px 12px;
   background: #2a1f12;
   border: 1px solid #5a4a2a;
-  border-radius: 7px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 16px;
   flex-wrap: wrap;
 }
 .hud-title {
   color: #e9c46a;
-  font-size: 17px;
-  letter-spacing: 5px;
+  font-size: 21px;
+  letter-spacing: 6px;
   font-weight: bold;
 }
 .hud-item b { color: #ffd97a; }
 
 #btn-start {
   font-family: inherit;
-  font-size: 14px;
-  padding: 2px 12px;
+  font-size: 16px;
+  padding: 3px 16px;
   background: #8c1f1f;
   color: #ffe9b0;
   border: 1px solid #c0392b;
@@ -51,71 +50,70 @@ canvas#gameCanvas {
   margin: 0 auto;
   background: #3a6b35;
   border: 2px solid #5a4a2a;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 /* 战备台面板：宽度与地图一致 */
 #control-panel {
-  width: 736px;
-  max-width: 96vw;
-  margin: 4px auto 3px;
-  padding: 5px 10px 6px;
+  width: 960px;
+  margin: 8px auto;
+  padding: 8px 14px 10px;
   background: linear-gradient(180deg, #2c2012, #1c150c);
   border: 2px solid #8c6d3f;
-  border-radius: 10px;
+  border-radius: 12px;
 }
 
 /* 第一行：棋子（左）→ 刷新/锁定（中）→ 出售区（右） */
 #cp-row1 {
   display: flex;
   align-items: stretch;
-  gap: 8px;
+  gap: 12px;
 }
 #shop-items {
   flex: 1;
   display: flex;
-  gap: 6px;
+  gap: 8px;
   justify-content: space-between;
 }
 .shop-card {
   flex: 1 1 0;
   min-width: 0;
-  padding: 4px 2px;
+  padding: 6px 4px;
   background: #241a0e;
   border: 2px solid #8c6d3f;
-  border-radius: 7px;
-  font-size: 14px;
-  line-height: 1.25;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1.3;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 .shop-card button {
-  margin-top: 3px;
+  margin-top: 4px;
   font-family: inherit;
-  font-size: 12px;
-  padding: 1px 4px;
+  font-size: 14px;
+  padding: 2px 4px;
   background: #8c1f1f;
   color: #ffe9b0;
   border: 1px solid #c0392b;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
   width: 100%;
 }
 .shop-card button:disabled { opacity: 0.5; cursor: default; }
 
-/* 刷新 / 锁定（中间，位于棋子与出售区之间） */
+/* 刷新 / 锁定（中间） */
 #shop-buttons {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   flex: 0 0 auto;
 }
 #btn-refresh, #btn-lock {
   font-family: inherit;
-  font-size: 13px;
-  padding: 4px 10px;
+  font-size: 15px;
+  padding: 6px 12px;
   background: #4a3520;
   color: #ffe9b0;
   border: 1px solid #8c6d3f;
@@ -129,64 +127,64 @@ canvas#gameCanvas {
 
 /* 出售区（右侧） */
 #sell-zone {
-  width: 110px;
-  flex: 0 0 110px;
+  width: 150px;
+  flex: 0 0 150px;
   background: #241307;
   border: 2px dashed #a33;
-  border-radius: 8px;
+  border-radius: 9px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
 }
 #sell-zone .sz-title {
-  font-size: 14px;
-  letter-spacing: 3px;
+  font-size: 16px;
+  letter-spacing: 4px;
   color: #ff9d8a;
 }
 
 /* 面板内分隔线 */
 .cp-divider {
   border-top: 1px dashed #5a4a2a;
-  margin: 3px 0;
+  margin: 6px 0;
 }
 
 /* 背包 */
 #inventory-bar {
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
 }
 .slot {
-  width: 66px;
-  height: 46px;
+  width: 84px;
+  height: 60px;
   background: #241a0e;
   border: 2px dashed #5a4a2a;
-  border-radius: 6px;
+  border-radius: 7px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  font-size: 13px;
-  line-height: 1.2;
+  font-size: 15px;
+  line-height: 1.25;
   cursor: grab;
   user-select: none;
 }
 .slot.filled { border-style: solid; border-color: #c9a86a; cursor: grab; }
-.slot .lv { color: #ffd97a; font-size: 11px; }
-.slot .empty { color: #6b5a3a; font-size: 12px; }
+.slot .lv { color: #ffd97a; font-size: 13px; }
+.slot .empty { color: #6b5a3a; font-size: 13px; }
 
-/* 悬浮提示（固定在底部中间，不占页面高度） */
+/* 悬浮提示 */
 #deploy-hint {
   position: fixed;
   left: 50%;
-  bottom: 8px;
+  bottom: 10px;
   transform: translateX(-50%);
   background: rgba(20, 16, 10, 0.88);
   color: #ffd97a;
-  font-size: 13px;
-  padding: 4px 14px;
-  border-radius: 14px;
+  font-size: 15px;
+  padding: 5px 16px;
+  border-radius: 16px;
   border: 1px solid #8c6d3f;
   pointer-events: none;
   z-index: 50;
@@ -195,5 +193,3 @@ canvas#gameCanvas {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-

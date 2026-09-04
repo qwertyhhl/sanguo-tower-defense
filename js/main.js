@@ -307,7 +307,10 @@
 
     // 2) 松在画布格子上？
     const rect = canvas.getBoundingClientRect();
-    const cell = cellFromPoint(clientX - rect.left, clientY - rect.top);
+    const cell = cellFromPoint(
+      (clientX - rect.left) * (canvas.width / rect.width),
+      (clientY - rect.top) * (canvas.height / rect.height)
+    );
     if (cell) {
       const tgt = findMergeTarget(d.type, d.level, cell.c, cell.r);
       if (tgt) {
@@ -673,12 +676,12 @@
       ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = phase === "win" ? "#f1c40f" : "#e74c3c";
-      ctx.font = "38px KaiTi, serif";
+      ctx.font = "52px KaiTi, serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(phase === "win" ? "守城成功！" : "城破……", canvas.width / 2, canvas.height / 2 - 20);
       ctx.fillStyle = "#f0d9a0";
-      ctx.font = "16px KaiTi, serif";
+      ctx.font = "22px KaiTi, serif";
       ctx.fillText("点击「再战一局」重新开始", canvas.width / 2, canvas.height / 2 + 30);
     }
   }
@@ -736,14 +739,21 @@
   // ---------- 鼠标交互 ----------
   function canvasPointFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height)
+    };
   }
 
   window.addEventListener("mousemove", function (e) {
     const rect = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
-    mouse.inside = mouse.x >= 0 && mouse.y >= 0 && mouse.x <= rect.width && mouse.y <= rect.height;
+    // 页面可能被整页缩放，把屏幕坐标换算回画布内部坐标
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    mouse.x = (e.clientX - rect.left) * sx;
+    mouse.y = (e.clientY - rect.top) * sy;
+    mouse.inside = e.clientX >= rect.left && e.clientX <= rect.right &&
+                   e.clientY >= rect.top && e.clientY <= rect.bottom;
   });
 
   // 从场上“拿起”单位
@@ -771,13 +781,25 @@
     drag = null;
   });
 
+  // ---------- 自适应缩放 ----------
+  // 设计宽度 960：窗口够大就 100% 显示（最大），放不下就等比缩小，绝不出滚动条
+  function applyFitZoom() {
+    document.documentElement.style.zoom = "1";
+    const designH = document.body.scrollHeight || 900;
+    const sx = (window.innerWidth - 8) / 960;
+    const sy = (window.innerHeight - 8) / designH;
+    const s = Math.max(0.4, Math.min(1, sx, sy));
+    document.documentElement.style.zoom = String(s);
+  }
+  window.addEventListener("resize", applyFitZoom);
+
   // ---------- 启动 ----------
   const query = new URLSearchParams(window.location.search);
 
   // 调试：量页面高度是否超过一屏（读 <title> 里的 INNER/SCROLL 数值）
   if (query.has("reportheight")) {
     function reportHeight() {
-      document.title = "INNER=" + window.innerHeight + " SCROLL=" + document.documentElement.scrollHeight;
+      document.title = "INNER=" + window.innerHeight + " SCROLL=" + document.documentElement.scrollHeight + " ZOOM=" + document.documentElement.style.zoom;
     }
     reportHeight();
     setTimeout(reportHeight, 100);
@@ -800,6 +822,8 @@
 
   drawMap(ctx);
   updateHud();
+  applyFitZoom(); // 按窗口自适应缩放整页
+  setTimeout(applyFitZoom, 80); // 等字体/布局稳定后再校准一次
 
   if (simulateSec > 0) {
     const dt = 1 / 60;
@@ -815,6 +839,8 @@
     requestAnimationFrame(loop);
   }
 })();
+
+
 
 
 
