@@ -40,6 +40,15 @@
   const inventoryBar = document.getElementById("inventory-bar");
   const hintEl = document.getElementById("deploy-hint");
 
+  // 拖拽时跟随鼠标的悬浮小卡片（在商店/背包等非画布区域也能看到）
+  const dragGhost = document.createElement("div");
+  dragGhost.style.cssText =
+    "position:fixed;left:0;top:0;display:none;pointer-events:none;z-index:999;" +
+    "padding:3px 10px;border-radius:10px;color:#fff;font-size:14px;" +
+    "border:2px solid rgba(255,255,255,0.9);box-shadow:0 2px 8px rgba(0,0,0,0.5);" +
+    "white-space:nowrap;";
+  document.body.appendChild(dragGhost);
+
   // ---------- 基础工具 ----------
   function unitDef(type) {
     if (type.indexOf("tower.") === 0) return CONFIG.towers[type.slice(6)];
@@ -249,15 +258,25 @@
   }
 
   // ---------- 拖拽 ----------
+  function showDragGhost(type, level) {
+    const def = unitDef(type);
+    dragGhost.style.background = def.color;
+    dragGhost.textContent = def.name + " Lv" + level;
+    dragGhost.style.display = "block";
+  }
+  function hideDragGhost() { dragGhost.style.display = "none"; }
+
   function startDragFromInv(slot) {
     const u = inventory[slot];
     if (!u) return;
     drag = { type: u.type, level: u.level, from: "inv", slot: slot };
+    showDragGhost(u.type, u.level);
   }
   function startDragFromField(unit) {
     drag = { type: unit.type, level: unit.level, from: "field", uid: unit.uid };
+    showDragGhost(unit.type, unit.level);
   }
-  function clearDrag() { drag = null; }
+  function clearDrag() { drag = null; hideDragGhost(); }
 
   function removeDragSource() {
     if (!drag) return;
@@ -719,7 +738,7 @@
     grain = CONFIG.startGrain;
     waveIndex = 0;
     phase = "ready";
-    drag = null;
+    clearDrag();
     renderInventory();
     renderShop();
     updateHud();
@@ -765,6 +784,13 @@
     mouse.y = (e.clientY - rect.top) * sy;
     mouse.inside = e.clientX >= rect.left && e.clientX <= rect.right &&
                    e.clientY >= rect.top && e.clientY <= rect.bottom;
+
+    // 让“拖拽卡片”跟随鼠标；画布内用画布预览，画布外用悬浮卡片
+    if (drag) {
+      dragGhost.style.left = (e.clientX + 14) + "px";
+      dragGhost.style.top = (e.clientY + 12) + "px";
+      dragGhost.style.display = mouse.inside ? "none" : "block";
+    }
   });
 
   // 从场上“拿起”单位
@@ -785,11 +811,11 @@
   });
 
   window.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { drag = null; }
+    if (e.key === "Escape") { clearDrag(); }
   });
   canvas.addEventListener("contextmenu", function (e) {
     e.preventDefault();
-    drag = null;
+    clearDrag();
   });
 
   // ---------- 自适应缩放 ----------
@@ -850,6 +876,7 @@
     requestAnimationFrame(loop);
   }
 })();
+
 
 
 
