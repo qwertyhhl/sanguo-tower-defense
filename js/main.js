@@ -34,6 +34,7 @@
       pos: pos,           // 当前像素位置
       waypointIndex: 0    // 正走向第几个路线点（0 = 已在起点）
     });
+    updateHud(); // 敌军数量变化后立刻刷新 HUD
   }
 
   // ---------- 游戏循环 ----------
@@ -149,3 +150,4 @@
   updateHud();
   requestAnimationFrame(loop);
 })();
+
