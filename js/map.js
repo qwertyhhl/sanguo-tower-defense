@@ -1,4 +1,4 @@
-// map.js —— 画地图：草地格子 + 行军路线 + 起点/城门
+// map.js —— 画地图：草地 + 行军路线 + 起点/城门
 
 // 根据画布大小算出每个格子边长（像素）
 function getCellSize() {
@@ -19,20 +19,19 @@ function isPathCell(col, row) {
 
 // 画整张地图
 function drawMap(ctx) {
+  const canvas = document.getElementById("gameCanvas");
   const s = getCellSize();
 
-  // 1) 草地：一格一格画，留 1 像素细缝更像棋盘
-  for (let r = 0; r < CONFIG.gridRows; r++) {
-    for (let c = 0; c < CONFIG.gridCols; c++) {
-      ctx.fillStyle = "#3a6b35";
-      ctx.fillRect(c * s, r * s, s - 1, s - 1);
-    }
-  }
+  // 1) 关键：每帧先把整块画布清空，再完整铺草地。
+  //    这样上一帧的遮罩/文字/血条不会残留，重开后不会出现“鬼影”和线条。
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#3a6b35"; // 草地底色
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 2) 行军路线：浅色土路
+  // 2) 行军路线：整格铺浅色土路（整块画，不留缝）
   ctx.fillStyle = "#c9a86a";
   for (const p of CONFIG.path) {
-    ctx.fillRect(p.c * s, p.r * s, s - 1, s - 1);
+    ctx.fillRect(p.c * s, p.r * s, s, s);
   }
 
   // 3) 起点：左侧绿色圆点 + “起”

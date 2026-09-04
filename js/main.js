@@ -190,8 +190,16 @@
       update(dt);
     }
     draw();
+
+    // 测试“再战一局”：若模拟结束时已城破，立刻重开并重画一帧
+    // （用来验证重开后背景没有残留遮罩/文字）
+    if (phase === "over" && query.has("restartAfterOver")) {
+      startGame();
+      draw();
+    }
   } else {
     requestAnimationFrame(loop); // 正常模式：启动游戏循环
   }
 })();
+
 
