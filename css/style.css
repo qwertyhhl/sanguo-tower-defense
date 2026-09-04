@@ -51,6 +51,16 @@ canvas#gameCanvas {
   margin: 0 auto;
 }
 
+/* 商店行：商店在左，出售区在右 */
+#shop-row {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 12px;
+  max-width: 1100px;
+  margin: 8px auto 4px;
+}
+
 /* 商店 */
 #shop-panel {
   display: flex;
@@ -126,15 +136,22 @@ canvas#gameCanvas {
 .slot .empty { color: #6b5a3a; font-size: 13px; }
 
 #sell-zone {
-  max-width: 960px;
-  margin: 4px auto;
+  min-width: 190px;
+  max-width: 220px;
+  margin: 0;
   padding: 8px;
   background: #241a0e;
   border: 2px dashed #a33;
   border-radius: 8px;
-  color: #b8a276;
-  font-size: 14px;
+  color: #e0b0b0;
+  font-size: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  line-height: 1.5;
 }
+#sell-zone small { color: #b8a276; font-size: 12px; }
 
 #deploy-hint {
   font-size: 13px;
@@ -142,4 +159,5 @@ canvas#gameCanvas {
   margin: 2px auto 10px;
   max-width: 900px;
 }
+
 
