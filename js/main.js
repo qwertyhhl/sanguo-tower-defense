@@ -49,7 +49,7 @@
   function statMul(level) { return Math.pow(CONFIG.levelGrowth, level - 1); }
   function fieldCount() { return buildings.length + soldiers.length; }
   function freeSlot() { for (let i = 0; i < inventory.length; i++) if (!inventory[i]) return i; return -1; }
-  function activePhase() { return phase === "battle" || phase === "between"; }
+  function activePhase() { return phase === "ready" || phase === "battle" || phase === "between"; }
 
   function setHint(text) {
     hintEl.textContent = text;
@@ -113,6 +113,7 @@
     return { ok: true };
   }
 
+  // 注意：合成/部署都会生成一个“全新单位”→ 士兵血量为满血（升级即回满）
   function addUnitToField(type, level, col, row) {
     const def = unitDef(type);
     const center = cellCenter(col, row);
@@ -191,9 +192,10 @@
       div.appendChild(btn);
       shopItems.appendChild(div);
     }
-    btnRefresh.disabled = grain < CONFIG.shop.refreshCost;
+    btnRefresh.disabled = false; // 商店随时可刷新（粮草不够时点了会提示）
   }
   function buyFromShop(type) {
+    if (phase === "over" || phase === "win") { setHint("游戏已结束，先点「再战一局」"); return; }
     const def = unitDef(type);
     if (grain < def.cost) { setHint("粮草不足"); return; }
     const idx = freeSlot();
@@ -219,7 +221,7 @@
         div.addEventListener("mousedown", function (e) {
           e.preventDefault();
           if (!activePhase()) {
-            setHint(phase === "ready" ? "先点「开始守城」再部署" : "游戏已结束，先点「再战一局」");
+            setHint("游戏已结束，先点「再战一局」");
             return;
           }
           startDragFromInv(i);
@@ -696,7 +698,8 @@
   });
 
   btnRefresh.addEventListener("click", function () {
-    if (grain < CONFIG.shop.refreshCost) { setHint("粮草不足，刷不起商店"); return; }
+    if (phase === "over" || phase === "win") { setHint("游戏已结束，先点「再战一局」"); return; }
+    if (grain < CONFIG.shop.refreshCost) { setHint("粮草不足，刷不起商店（10 粮草/次）"); return; }
     grain -= CONFIG.shop.refreshCost;
     refreshShop();
     updateHud();
@@ -775,3 +778,4 @@
     requestAnimationFrame(loop);
   }
 })();
+
