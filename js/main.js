@@ -27,6 +27,7 @@
   let explosions = [];
   let inventory = new Array(CONFIG.inventorySize).fill(null);
   let uidCounter = 1;
+  let unitImages = {}; // type -> 已加载贴图（img/*.png，无则用水墨占位）
 
   let drag = null;
   const mouse = { x: 0, y: 0, inside: false };
@@ -62,6 +63,22 @@
     if (type.indexOf("hero.") === 0) return CONFIG.heroes[type.slice(5)];
     if (type.indexOf("soldier.") === 0) return CONFIG.soldiers[type.slice(8)];
     return null;
+  }
+  const IMG_FILE = {
+    "tower.archer": "tower_archer", "tower.catapult": "tower_catapult", "tower.fire": "tower_fire",
+    "farmer.farmer": "farmer",
+    "soldier.shield": "soldier_shield", "soldier.archer": "soldier_archer", "soldier.spear": "soldier_spear",
+    "hero.guan": "hero_guan", "hero.zhaoyun": "hero_zhaoyun", "hero.huangzhong": "hero_huangzhong",
+    "hero.zhangfei": "hero_zhangfei", "hero.zhouyu": "hero_zhouyu", "hero.zhuge": "hero_zhuge",
+    "__enemy__": "enemy_infantry", "__boss__": "enemy_boss"
+  };
+  function preloadImages() {
+    for (const t in IMG_FILE) {
+      const img = new Image();
+      img.onload = function () { unitImages[t] = img; };
+      img.onerror = function () { /* 没有贴图就用水墨占位 */ };
+      img.src = "img/" + IMG_FILE[t] + ".png";
+    }
   }
   function statMul(level) { return Math.pow(CONFIG.levelGrowth, level - 1); }
   function fieldCount() { return buildings.length + soldiers.length; }
@@ -745,13 +762,35 @@
     const s = getCellSize();
     for (const b of buildings) {
       const def = unitDef(b.type);
+      const im = unitImages[b.type];
+      if (im) {
+        const sz = s * 0.9;
+        ctx.drawImage(im, b.x - sz / 2, b.y - sz / 2, sz, sz);
+        if (b.level > 1) {
+          ctx.fillStyle = "#ffd700";
+          ctx.font = s * 0.2 + "px KaiTi, serif";
+          ctx.textAlign = "center";
+          ctx.fillText("Lv" + b.level, b.x, b.y - s * 0.5);
+        }
+        continue;
+      }
+      ctx.fillStyle = "rgba(0,0,0,0.10)";
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, s * 0.42, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = def.color;
       if (def.kind === "farmer") {
         ctx.beginPath();
         ctx.arc(b.x, b.y, s * 0.3, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = "rgba(20,10,0,0.6)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
       } else {
         ctx.fillRect(b.x - s * 0.33, b.y - s * 0.33, s * 0.66, s * 0.66);
+        ctx.strokeStyle = "rgba(20,10,0,0.6)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(b.x - s * 0.33, b.y - s * 0.33, s * 0.66, s * 0.66);
       }
       ctx.fillStyle = "#fff";
       ctx.font = s * 0.26 + "px KaiTi, serif";
@@ -765,10 +804,29 @@
     for (const sld of soldiers) {
       if (sld.dead) continue;
       const def = unitDef(sld.type);
+      const im = unitImages[sld.type];
+      if (im) {
+        const sz = s * (def.hero ? 1.0 : 0.92);
+        ctx.drawImage(im, sld.x - sz / 2, sld.y - sz / 2, sz, sz);
+        if (sld.level > 1) {
+          ctx.fillStyle = "#ffd700";
+          ctx.font = s * 0.2 + "px KaiTi, serif";
+          ctx.textAlign = "center";
+          ctx.fillText("Lv" + sld.level, sld.x, sld.y - s * 0.5);
+        }
+        continue;
+      }
+      ctx.fillStyle = "rgba(0,0,0,0.10)";
+      ctx.beginPath();
+      ctx.arc(sld.x, sld.y, s * 0.4, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = def.color;
       ctx.beginPath();
       ctx.arc(sld.x, sld.y, s * 0.3, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = "rgba(20,10,0,0.6)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
       if (def.hero) {
         ctx.strokeStyle = "#ffd700";
         ctx.lineWidth = 2;
@@ -790,6 +848,27 @@
     for (const e of enemies) {
       if (e.dead) continue;
       const r = e.isBoss ? s * CONFIG.boss.radiusMul : s * 0.26;
+      const ekey = e.isBoss ? "__boss__" : "__enemy__";
+      const eim = unitImages[ekey];
+      if (eim) {
+        const esz = s * (e.isBoss ? 1.3 : 0.9);
+        ctx.drawImage(eim, e.x - esz / 2, e.y - esz / 2, esz, esz);
+        if (e.isBoss) {
+          ctx.fillStyle = "#fff";
+          ctx.font = s * 0.2 + "px KaiTi, serif";
+          ctx.textAlign = "center";
+          ctx.fillText("将", e.x, e.y - r - s * 0.1);
+        }
+        if (e.hp < e.maxHp) {
+          const w = e.isBoss ? s * 0.9 : s * 0.56;
+          drawHpBar(e.x - w / 2, e.y - r - s * 0.3, w, 5, Math.max(0, e.hp / e.maxHp), "#e74c3c");
+        }
+        continue;
+      }
+      ctx.fillStyle = "rgba(0,0,0,0.12)";
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, r * 1.35, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = e.isBoss ? CONFIG.boss.color : CONFIG.enemy.color;
       ctx.beginPath();
       ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
@@ -1037,6 +1116,7 @@
     setTimeout(reportHeight, 500);
   }
 
+  preloadImages();
   renderInventory();
   refreshShop();
 
@@ -1074,4 +1154,5 @@
     requestAnimationFrame(loop);
   }
 })();
+
 

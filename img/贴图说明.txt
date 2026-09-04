@@ -1,0 +1,17 @@
+此文件夹放单位贴图（水墨三国风 PNG，透明背景更佳）。
+文件名对应关系（放进来后游戏自动生效，无需改代码）：
+tower_archer.png  连弩台
+tower_catapult.png 投石车
+tower_fire.png    火攻台
+farmer.png        农民
+soldier_shield.png 盾兵
+soldier_archer.png 弓兵
+soldier_spear.png  枪兵
+hero_guan.png     关羽
+hero_zhaoyun.png  赵云
+hero_huangzhong.png 黄忠
+hero_zhangfei.png 张飞
+hero_zhouyu.png   周瑜
+hero_zhuge.png    诸葛亮
+enemy_infantry.png 敌军步兵
+enemy_boss.png    敌将Boss
