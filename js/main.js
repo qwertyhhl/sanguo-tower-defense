@@ -13,15 +13,11 @@
   let spawnTimer = 0;   // 距下一个敌军出生的倒计时（秒）
 
   // ---------- DOM 引用 ----------
-  const hudHp = document.getElementById("hud-gate-hp");
-  const hudCount = document.getElementById("hud-enemy-count");
   const hudPhase = document.getElementById("hud-phase");
   const btnStart = document.getElementById("btn-start");
 
   // 刷新顶部状态栏
   function updateHud() {
-    hudHp.textContent = gateHp;
-    hudCount.textContent = enemies.length;
     hudPhase.textContent = phase === "ready" ? "准备中"
       : phase === "playing" ? "战斗中" : "城破…";
   }
@@ -34,7 +30,6 @@
       pos: pos,           // 当前像素位置
       waypointIndex: 0    // 正走向第几个路线点（0 = 已在起点）
     });
-    updateHud(); // 敌军数量变化后立刻刷新 HUD
   }
 
   // ---------- 游戏循环 ----------
@@ -103,6 +98,30 @@
     }
   }
 
+  // 画城门上方的耐久血条（颜色：绿→黄→红）
+  function drawGateHpBar(ctx) {
+    const s = getCellSize();
+    const end = CONFIG.path[CONFIG.path.length - 1];
+    const ec = cellCenter(end.c, end.r);
+    const w = s * 0.9;
+    const h = Math.max(6, s * 0.12);
+    const x = ec.x - w / 2;
+    const y = ec.y - s * 0.78;
+    const ratio = Math.max(0, Math.min(1, gateHp / CONFIG.gateHp));
+
+    // 底槽（深色边框 + 深棕底）
+    ctx.fillStyle = "#2b1d10";
+    ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = "#5c3a21";
+    ctx.fillRect(x, y, w, h);
+
+    // 血量颜色：>50% 绿，>25% 黄，否则红
+    ctx.fillStyle = ratio > 0.5 ? "#4caf50" : ratio > 0.25 ? "#f1c40f" : "#e74c3c";
+    if (ratio > 0) {
+      ctx.fillRect(x, y, w * ratio, h);
+    }
+  }
+
   // 每帧绘制
   function draw() {
     drawMap(ctx);
@@ -114,6 +133,9 @@
       ctx.arc(e.pos.x, e.pos.y, getCellSize() * 0.28, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // 画城门耐久血条（在城门上方）
+    drawGateHpBar(ctx);
 
     // 城破提示
     if (phase === "over") {
@@ -172,3 +194,4 @@
     requestAnimationFrame(loop); // 正常模式：启动游戏循环
   }
 })();
+
