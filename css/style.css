@@ -1,0 +1,22 @@
+/* 三国守城 - 基础样式（M0） */
+body {
+  margin: 0;
+  background: #1a120b;            /* 深色背景，像夜晚的城 */
+  color: #f0d9a0;                 /* 泛黄的古籍色 */
+  font-family: "KaiTi", "STKaiti", "SimSun", serif;
+  text-align: center;
+}
+
+h1#game-title {
+  margin: 18px 0 10px;
+  font-size: 32px;
+  letter-spacing: 10px;
+}
+
+canvas#gameCanvas {
+  background: #3a6b35;            /* 先给画布一个草地底色，之后会画地图 */
+  border: 2px solid #5a4a2a;
+  border-radius: 6px;
+  display: block;
+  margin: 0 auto;
+}
