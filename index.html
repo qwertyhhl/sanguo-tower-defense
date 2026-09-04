@@ -6,10 +6,9 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <h1 id="game-title">三国守城</h1>
-
-  <!-- 顶部状态栏 -->
+  <!-- 标题并入状态栏，节省高度 -->
   <div id="hud">
+    <span class="hud-title">三国守城</span>
     <span class="hud-item">波次：<b id="hud-wave">0/10</b></span>
     <span class="hud-item">粮草：<b id="hud-grain">100</b></span>
     <span class="hud-item">人口：<b id="hud-pop">0/20</b></span>
@@ -17,10 +16,10 @@
     <button id="btn-start" type="button">开始守城</button>
   </div>
 
-  <!-- 战场画布 -->
-  <canvas id="gameCanvas" width="640" height="360"></canvas>
+  <!-- 战场画布（宽 736 = 面板宽，16×9，每格 46px） -->
+  <canvas id="gameCanvas" width="736" height="414"></canvas>
 
-  <!-- 战备台：棋子 → 刷新/锁定 → 出售区，下接背包 -->
+  <!-- 战备台：宽度与地图一致：棋子 → 刷新/锁定 → 出售区，下接背包 -->
   <div id="control-panel">
     <div id="cp-row1">
       <div id="shop-items"></div>
@@ -36,11 +35,8 @@
     </div>
   </div>
 
-  <div id="deploy-hint">买单位 → 拖上战场（塔/农民放草地，士兵放路上）；同类型同等级拖一起 = 合成升级</div>
-
   <script src="js/config.js"></script>
   <script src="js/map.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
-
