@@ -55,11 +55,13 @@
 
   // 每帧更新：出生敌军 + 让敌军沿路线走
   function update(dt) {
-    // 1) 定时出生
-    spawnTimer -= dt;
-    if (spawnTimer <= 0) {
-      spawnEnemy();
-      spawnTimer = CONFIG.enemy.spawnInterval;
+    // 1) 定时出生（城破后不再出新的）
+    if (phase === "playing") {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnEnemy();
+        spawnTimer = CONFIG.enemy.spawnInterval;
+      }
     }
 
     // 2) 移动：每个敌人走向下一个路线点（倒着遍历，删除时安全）
@@ -145,15 +147,28 @@
     }
   });
 
-  // 调试开关：地址栏加 ?autostart=1 可自动开局（方便自动化测试，正常游玩可忽略）
-  if (new URLSearchParams(window.location.search).has("autostart")) {
+  // ---------- 启动 ----------
+  // 自动化测试参数（正常双击游玩不受影响）：
+  //   ?autostart=1   自动点“开始守城”
+  //   ?simulate=25   不开动画，同步把游戏逻辑跑 25 秒（用于验证移动/扣耐久）
+  const query = new URLSearchParams(window.location.search);
+  const simulateSec = parseFloat(query.get("simulate") || "0");
+
+  if (query.has("autostart") || simulateSec > 0) {
     startGame();
   }
 
-  // ---------- 启动 ----------
   drawMap(ctx);
   updateHud();
-  requestAnimationFrame(loop);
+
+  if (simulateSec > 0) {
+    // 同步模拟：用固定 1/60 秒步长，把 update 跑 simulateSec 秒
+    const dt = 1 / 60;
+    for (let t = 0; t < simulateSec; t += dt) {
+      update(dt);
+    }
+    draw();
+  } else {
+    requestAnimationFrame(loop); // 正常模式：启动游戏循环
+  }
 })();
-
-
