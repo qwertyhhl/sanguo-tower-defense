@@ -184,6 +184,14 @@
     shopItems.innerHTML = "";
     for (let i = 0; i < shopStock.length; i++) {
       const item = shopStock[i];
+      if (!item) {
+        // 已被买走的空位：保留位置，不自动补货（云顶式）
+        const empty = document.createElement("div");
+        empty.className = "shop-card empty-shop";
+        empty.textContent = "已购";
+        shopItems.appendChild(empty);
+        continue;
+      }
       const def = unitDef(item.type);
       const div = document.createElement("div");
       div.className = "shop-card";
@@ -199,13 +207,14 @@
   }
   function buyFromShop(type, index) {
     if (phase === "over" || phase === "win") { setHint("游戏已结束，先点「再战一局」"); return; }
+    if (!shopStock[index]) return; // 空位不能再买
     const def = unitDef(type);
     if (grain < def.cost) { setHint("粮草不足"); return; }
     const idx = freeSlot();
     if (idx < 0) { setHint("背包已满（5 格），先部署或合成腾位置"); return; }
     grain -= def.cost;
     inventory[idx] = { type: type, level: 1 };
-    shopStock.splice(index, 1); // 买走一格，货架空一格，下次刷新才补（云顶式）
+    shopStock[index] = null; // 买走一格：保留空位，不自动补货，下次刷新才补（云顶式）
     setHint("已购入 " + def.name + " → 放入背包第 " + (idx + 1) + " 格");
     renderInventory();
     renderShop();
@@ -839,6 +848,7 @@
     requestAnimationFrame(loop);
   }
 })();
+
 
 
 

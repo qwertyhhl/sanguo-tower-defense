@@ -101,6 +101,12 @@ canvas#gameCanvas {
   width: 100%;
 }
 .shop-card button:disabled { opacity: 0.5; cursor: default; }
+.shop-card.empty-shop {
+  border-style: dashed;
+  color: #6b5a3a;
+  font-size: 14px;
+  justify-content: center;
+}
 
 /* 刷新 / 锁定（中间） */
 #shop-buttons {
@@ -193,3 +199,4 @@ canvas#gameCanvas {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
