@@ -86,7 +86,7 @@
     }
   }
   function statMul(level) { return Math.pow(CONFIG.levelGrowth, level - 1); }
-  function addShake(t, mag) { shakeTime = Math.max(shakeTime, t); shakeMag = Math.max(shakeMag, mag); }
+  function addShake() { /* 震屏已关闭（保留接口，想开启时恢复实现即可） */ }
   function addFloat(x, y, text, color, size, life) {
     fxFloats.push({ x: x, y: y, text: text, color: color || "#fff", size: size || 0.2, life: life || 0.6, ttl: life || 0.6 });
     if (fxFloats.length > 80) fxFloats.shift();
