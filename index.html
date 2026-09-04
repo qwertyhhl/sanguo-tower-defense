@@ -19,26 +19,44 @@
 
   <canvas id="gameCanvas" width="960" height="540"></canvas>
 
-  <!-- 商店（左）+ 出售区（右） -->
-  <div id="shop-row">
-    <div id="shop-panel">
-      <div id="shop-items"></div>
-      <div id="shop-buttons">
-        <button id="btn-refresh" type="button">刷新商店（10 粮草）</button>
-        <button id="btn-lock" type="button">锁定商店</button>
+  <!-- 战备台：商店 + 出售区 + 背包，统一框在一个面板里 -->
+  <div id="control-panel">
+    <div class="cp-title">战 备 台</div>
+
+    <div id="cp-row1">
+      <!-- 商店区 -->
+      <div id="cp-shop">
+        <div class="cp-label">商 店（每波自动刷新）</div>
+        <div id="shop-items"></div>
+        <div id="shop-buttons">
+          <button id="btn-refresh" type="button">刷新商店（10 粮草）</button>
+          <button id="btn-lock" type="button">锁定商店</button>
+        </div>
+      </div>
+
+      <!-- 出售区 -->
+      <div id="sell-zone">
+        <div class="sz-title">出 售 区</div>
+        <small>把背包或场上的单位拖到这里卖钱<br>1级=造价 · 2级=2倍 · 3级=4倍</small>
       </div>
     </div>
-    <div id="sell-zone">出售区<br><small>把背包或场上的单位拖到这里卖钱（1级=造价，2级=2倍造价…）</small></div>
+
+    <div class="cp-divider"></div>
+
+    <!-- 背包区 -->
+    <div id="cp-inv">
+      <div class="cp-label">背 包（拖到地图部署 / 拖到一起合成）</div>
+      <div id="inventory-bar"></div>
+    </div>
   </div>
 
-  <!-- 背包：5 格 -->
-  <div id="inventory-bar"></div>
-  <div id="deploy-hint">商店每波自动刷新（可锁定）→ 买单位进背包 → 拖到地图部署；同类型同等级拖一起合成升级</div>
+  <div id="deploy-hint">买单位 → 进背包 → 拖上战场（塔/农民放草地，士兵放路上）；同类型同等级拖一起 = 合成升级</div>
 
   <script src="js/config.js"></script>
   <script src="js/map.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
+
 
 

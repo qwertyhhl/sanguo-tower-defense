@@ -1,7 +1,7 @@
-/* 三国守城 - 基础样式（M3：商店 + 背包） */
+/* 三国守城 - 样式（M3 战备面板布局版） */
 body {
   margin: 0;
-  background: #1a120b;
+  background: #14100a;
   color: #f0d9a0;
   font-family: "KaiTi", "STKaiti", "SimSun", serif;
   text-align: center;
@@ -10,7 +10,9 @@ body {
 h1#game-title {
   margin: 10px 0 6px;
   font-size: 26px;
-  letter-spacing: 10px;
+  letter-spacing: 12px;
+  color: #e9c46a;
+  text-shadow: 0 2px 0 #000;
 }
 
 /* 顶部状态栏 */
@@ -19,7 +21,7 @@ h1#game-title {
   justify-content: center;
   align-items: center;
   gap: 22px;
-  max-width: 960px;
+  max-width: 1100px;
   margin: 0 auto 8px;
   padding: 6px 14px;
   background: #2a1f12;
@@ -43,37 +45,60 @@ h1#game-title {
 #btn-start:hover:enabled { background: #a93226; }
 #btn-start:disabled { opacity: 0.6; cursor: default; }
 
+/* 战场画布 */
 canvas#gameCanvas {
   background: #3a6b35;
   border: 2px solid #5a4a2a;
-  border-radius: 6px;
+  border-radius: 8px;
   display: block;
   margin: 0 auto;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
 }
 
-/* 商店行：商店在左，出售区在右 */
-#shop-row {
-  display: flex;
-  justify-content: center;
-  align-items: stretch;
-  gap: 12px;
+/* ===== 战备台：商店 + 出售区 + 背包 一个面板 ===== */
+#control-panel {
   max-width: 1100px;
-  margin: 8px auto 4px;
+  margin: 10px auto 6px;
+  padding: 10px 14px 12px;
+  background: linear-gradient(180deg, #2c2012, #1c150c);
+  border: 2px solid #8c6d3f;
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
 }
 
-/* 商店 */
-#shop-panel {
+.cp-title {
+  font-size: 15px;
+  color: #d9b36a;
+  letter-spacing: 8px;
+  text-align: left;
+  border-bottom: 1px solid #5a4a2a;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+
+.cp-label {
+  color: #c9a86a;
+  font-size: 14px;
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+  text-align: left;
+}
+
+/* 第一行：商店 + 出售区 */
+#cp-row1 {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  max-width: 960px;
-  margin: 8px auto 4px;
+  gap: 14px;
+  align-items: stretch;
+}
+#cp-shop { flex: 1; min-width: 0; }
+
+#shop-items {
+  display: flex;
+  gap: 8px;
   flex-wrap: wrap;
 }
-#shop-items { display: flex; gap: 10px; }
 .shop-card {
-  width: 120px;
+  width: 122px;
   padding: 6px 4px;
   background: #241a0e;
   border: 2px solid #8c6d3f;
@@ -85,17 +110,21 @@ canvas#gameCanvas {
   margin-top: 4px;
   font-family: inherit;
   font-size: 13px;
-  padding: 2px 12px;
+  padding: 2px 10px;
   background: #8c1f1f;
   color: #ffe9b0;
   border: 1px solid #c0392b;
   border-radius: 5px;
   cursor: pointer;
+  width: 100%;
 }
 .shop-card button:disabled { opacity: 0.5; cursor: default; }
 
-#shop-buttons { display: flex; flex-direction: column; gap: 8px; }
-
+#shop-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
 #btn-refresh, #btn-lock {
   font-family: inherit;
   font-size: 15px;
@@ -106,19 +135,49 @@ canvas#gameCanvas {
   border-radius: 6px;
   cursor: pointer;
 }
+#btn-refresh:hover:enabled, #btn-lock:hover:enabled { background: #5d4528; }
 #btn-refresh:disabled, #btn-lock:disabled { opacity: 0.5; cursor: default; }
 #btn-lock.locked { background: #6b4a1f; border-color: #f1c40f; }
 
-/* 背包 */
+/* 出售区（商店右侧） */
+#sell-zone {
+  width: 210px;
+  flex: 0 0 210px;
+  background: #241307;
+  border: 2px dashed #a33;
+  border-radius: 10px;
+  color: #e0b0b0;
+  font-size: 15px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.5;
+}
+#sell-zone .sz-title {
+  font-size: 16px;
+  letter-spacing: 4px;
+  color: #ff9d8a;
+}
+#sell-zone small { color: #b8a276; font-size: 12px; }
+
+/* 面板内分隔线 */
+.cp-divider {
+  border-top: 1px dashed #5a4a2a;
+  margin: 10px 0;
+}
+
+/* 背包区 */
+#cp-inv { }
 #inventory-bar {
   display: flex;
   justify-content: center;
   gap: 8px;
-  margin: 6px auto;
 }
 .slot {
-  width: 72px;
-  height: 62px;
+  width: 76px;
+  height: 64px;
   background: #241a0e;
   border: 2px dashed #5a4a2a;
   border-radius: 8px;
@@ -135,29 +194,9 @@ canvas#gameCanvas {
 .slot .lv { color: #ffd97a; font-size: 12px; }
 .slot .empty { color: #6b5a3a; font-size: 13px; }
 
-#sell-zone {
-  min-width: 190px;
-  max-width: 220px;
-  margin: 0;
-  padding: 8px;
-  background: #241a0e;
-  border: 2px dashed #a33;
-  border-radius: 8px;
-  color: #e0b0b0;
-  font-size: 16px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  line-height: 1.5;
-}
-#sell-zone small { color: #b8a276; font-size: 12px; }
-
 #deploy-hint {
   font-size: 13px;
   color: #b8a276;
-  margin: 2px auto 10px;
+  margin: 4px auto 12px;
   max-width: 900px;
 }
-
-
