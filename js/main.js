@@ -981,7 +981,13 @@
     const s = getCellSize();
     for (const e of enemies) {
       if (e.dead) continue;
-      stickFigure(e.x, e.y, s, null, e.isBoss ? "greatsword" : "sword", { enemy: true, boss: !!e.isBoss, dir: -1 });
+      // 朝向：按敌军行进方向（下一个路线点）
+      let edir = 1;
+      if (e.at + 1 < CONFIG.path.length) {
+        const nx = cellCenter(CONFIG.path[e.at + 1].c, CONFIG.path[e.at + 1].r).x;
+        edir = nx >= e.x ? 1 : -1;
+      }
+      stickFigure(e.x, e.y, s, null, e.isBoss ? "greatsword" : "sword", { enemy: true, boss: !!e.isBoss, dir: edir });
       if (e.isBoss) {
         ctx.fillStyle = "#fff";
         ctx.font = s * 0.2 + "px KaiTi, serif";
