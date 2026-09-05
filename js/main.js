@@ -477,9 +477,18 @@
     if (window.SFX) SFX.play("coin");
     setHint("第 " + waveIndex + " 波守住！奖励 " + bonus + " 粮草");
     if (phase === "win" && window.SFX) SFX.play("win");
-    if (waveIndex >= CONFIG.waves.total) phase = "win";
-    else { phase = "between"; prepTimer = CONFIG.waves.prepTime; }
-    updateHud();
+    if (waveIndex >= CONFIG.waves.total) {
+      phase = "win";
+      updateHud();
+    } else {
+      phase = "between";
+      prepTimer = CONFIG.waves.prepTime;
+      if (prepTimer <= 0) {
+        beginWave(waveIndex + 1); // 不停顿：立刻开下一波
+        return;
+      }
+      updateHud();
+    }
   }
 
   // ---------- 更新 ----------
@@ -1203,10 +1212,10 @@
     addUnitToField("farmer.farmer", 1, 2, 3);
     addUnitToField("tower.catapult", 1, 3, 3);
     addUnitToField("tower.fire", 1, 1, 2);
-    addUnitToField("soldier.shield", 1, 4, 4);
-    addUnitToField("soldier.spear", 1, 4, 2);
-    addUnitToField("soldier.archer", 1, 7, 1);
-    addUnitToField("hero.guan", 1, 5, 1);
+    addUnitToField("hero.guan", 1, 4, 4);
+    addUnitToField("hero.zhaoyun", 1, 4, 2);
+    addUnitToField("hero.huangzhong", 1, 7, 1);
+    addUnitToField("hero.zhangfei", 1, 5, 1);
   }
 
   drawMap(ctx);
