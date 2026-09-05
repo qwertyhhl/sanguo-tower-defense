@@ -32,7 +32,6 @@
   let shakeMag = 0;
   let inventory = new Array(CONFIG.inventorySize).fill(null);
   let uidCounter = 1;
-  let unitImages = {}; // type -> 已加载贴图（img/*.png，无则用水墨占位）
 
   let drag = null;
   const mouse = { x: 0, y: 0, inside: false };
@@ -68,22 +67,6 @@
     if (type.indexOf("hero.") === 0) return CONFIG.heroes[type.slice(5)];
     if (type.indexOf("soldier.") === 0) return CONFIG.soldiers[type.slice(8)];
     return null;
-  }
-  const IMG_FILE = {
-    "tower.archer": "tower_archer", "tower.catapult": "tower_catapult", "tower.fire": "tower_fire",
-    "farmer.farmer": "farmer",
-    "soldier.shield": "soldier_shield", "soldier.archer": "soldier_archer", "soldier.spear": "soldier_spear",
-    "hero.guan": "hero_guan", "hero.zhaoyun": "hero_zhaoyun", "hero.huangzhong": "hero_huangzhong",
-    "hero.zhangfei": "hero_zhangfei", "hero.zhouyu": "hero_zhouyu", "hero.zhuge": "hero_zhuge",
-    "__enemy__": "enemy_infantry", "__boss__": "enemy_boss"
-  };
-  function preloadImages() {
-    for (const t in IMG_FILE) {
-      const img = new Image();
-      img.onload = function () { unitImages[t] = img; };
-      img.onerror = function () { /* 没有贴图就用水墨占位 */ };
-      img.src = "img/" + IMG_FILE[t] + ".png";
-    }
   }
   function statMul(level) { return Math.pow(CONFIG.levelGrowth, level - 1); }
   function addShake() { /* 震屏已关闭（保留接口，想开启时恢复实现即可） */ }
@@ -832,45 +815,147 @@
     ctx.fillStyle = color;
     if (ratio > 0) ctx.fillRect(x, y, w * ratio, h);
   }
+  function weaponFor(type) {
+    if (type === "soldier.shield") return "shield";
+    if (type === "soldier.archer" || type === "hero.huangzhong") return "bow";
+    if (type === "soldier.spear" || type === "hero.zhaoyun") return "spear";
+    if (type === "hero.guan") return "guandao";
+    if (type === "hero.zhangfei") return "serpent";
+    if (type === "hero.zhouyu") return "sword";
+    if (type === "hero.zhuge") return "fan";
+    if (type === "farmer.farmer") return "hoe";
+    return "sword";
+  }
+  // 火柴人绘制：x,y 为格子中心；s 为格子边长；opt={hero,enemy,boss,level,dir}
+  function stickFigure(x, y, s, def, weapon, opt) {
+    const color = (opt && opt.enemy) ? "#1c1c1c" : "#1c1c1c";
+    const sash = (opt && opt.boss) ? "#6a2f8f" : (opt && opt.enemy) ? "#a03030" : (def ? def.color : "#7a7a7a");
+    const dir = (opt && opt.dir < 0) ? -1 : 1;
+    const k = (opt && opt.boss) ? s * 1.3 : s; // Boss 更大
+    const gy = y + s * 0.32; // 脚底
+    // 影子
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    ctx.beginPath(); ctx.ellipse(x, gy + s * 0.04, k * 0.22, k * 0.05, 0, 0, Math.PI * 2); ctx.fill();
+
+    ctx.save();
+    ctx.translate(x, gy);
+    ctx.scale(dir * (k / s), k / s); // 以 s 为单位的坐标系，y 向上为负
+    const lw = Math.max(2, s * 0.06);
+    ctx.lineCap = "round";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    function seg(x1, y1, x2, y2, w, col) {
+      ctx.strokeStyle = col || color;
+      ctx.lineWidth = w || lw;
+      ctx.beginPath(); ctx.moveTo(x1 * s, y1 * s); ctx.lineTo(x2 * s, y2 * s); ctx.stroke();
+    }
+    // 腿
+    seg(0, -0.30, -0.10, 0, lw * 0.9);
+    seg(0, -0.30, 0.12, 0, lw * 0.9);
+    // 身体
+    seg(0, -0.30, 0, -0.58, lw);
+    // 腰饰（阵营色）
+    ctx.fillStyle = sash;
+    ctx.fillRect(-0.13 * s, -0.34 * s, 0.26 * s, 0.05 * s);
+    // 后臂
+    seg(0, -0.56, -0.22, -0.52, lw * 0.85);
+    // 头
+    ctx.beginPath(); ctx.arc(0, -0.68 * s, 0.10 * s, 0, Math.PI * 2); ctx.stroke();
+    // 头饰（阵营色带）
+    ctx.strokeStyle = sash; ctx.lineWidth = lw * 0.8;
+    ctx.beginPath(); ctx.moveTo(-0.10 * s, -0.74 * s); ctx.lineTo(0.10 * s, -0.74 * s); ctx.stroke();
+    // 武将金色星标
+    if (opt && opt.hero) {
+      ctx.fillStyle = "#ffd700";
+      ctx.font = (s * 0.16) + "px KaiTi, serif";
+      ctx.textAlign = "center";
+      ctx.fillText("★", 0, -0.86 * s);
+    }
+    // 前臂（持武器）
+    const hx = 0.24, hy = -0.56;
+    seg(0, -0.56, hx, hy, lw * 0.85);
+    // —— 武器 ——
+    if (weapon === "spear" || weapon === "serpent" || weapon === "guandao") {
+      const shaftCol = weapon === "guandao" ? "#3e5a20" : weapon === "serpent" ? "#2a2a2a" : "#b08968";
+      seg(hx, hy, 1.0, -0.92, lw * 0.8, shaftCol);
+      ctx.fillStyle = weapon === "guandao" ? "#e7efe0" : "#dfe6ec";
+      ctx.strokeStyle = "#1c140c"; ctx.lineWidth = 1.5;
+      // 枪/刀头
+      ctx.beginPath(); ctx.moveTo(1.0 * s, -0.92 * s);
+      if (weapon === "guandao") {
+        ctx.lineTo(1.18 * s, -0.80 * s); ctx.lineTo(1.0 * s, -0.72 * s);
+      } else {
+        ctx.lineTo(1.10 * s, -0.78 * s); ctx.lineTo(0.94 * s, -0.86 * s);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // 红缨
+      ctx.fillStyle = "#c33";
+      ctx.beginPath(); ctx.arc(0.90 * s, -0.86 * s, 0.05 * s, 0, Math.PI * 2); ctx.fill();
+    } else if (weapon === "shield") {
+      seg(hx, hy, 0.55, -0.55, lw * 0.85);
+      const sx0 = 0.58, sy0 = -0.48;
+      ctx.fillStyle = "#caa15a"; ctx.strokeStyle = "#1c140c"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sx0 * s, sy0 * s, 0.22 * s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#5a3510"; ctx.beginPath(); ctx.arc(sx0 * s, sy0 * s, 0.07 * s, 0, Math.PI * 2); ctx.fill();
+      seg(-0.22, -0.52, -0.5, -0.95, lw * 0.9, "#cfd6dd"); // 刀
+    } else if (weapon === "bow") {
+      seg(hx, hy, 0.55, -0.68, lw * 0.85);
+      ctx.strokeStyle = "#8a5a28"; ctx.lineWidth = lw * 0.8;
+      ctx.beginPath(); ctx.arc(0.55 * s, -0.68 * s, 0.26 * s, -1.1, 1.1); ctx.stroke();
+      ctx.strokeStyle = "#e8e0cc"; ctx.lineWidth = lw * 0.4;
+      ctx.beginPath(); ctx.moveTo(0.33 * s, -0.52 * s); ctx.lineTo(0.55 * s, -0.68 * s); ctx.lineTo(0.36 * s, -0.86 * s); ctx.stroke();
+    } else if (weapon === "sword" || weapon === "greatsword") {
+      const big = weapon === "greatsword";
+      seg(hx, hy, 1.0, -1.02, (big ? lw * 1.6 : lw * 0.9), "#cfd6dd");
+      ctx.strokeStyle = "#1c140c"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(1.0 * s, -1.02 * s); ctx.lineTo(1.06 * s, -0.94 * s); ctx.stroke();
+    } else if (weapon === "fan") {
+      seg(hx, hy, 0.6, -0.72, lw * 0.85);
+      ctx.fillStyle = "rgba(240,235,220,0.9)"; ctx.strokeStyle = "#8c7a55"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(0.66 * s, -0.74 * s, 0.13 * s, 0.16 * s, -0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else if (weapon === "hoe") {
+      seg(hx, hy, 0.62, -0.95, lw * 0.85, "#b08968");
+      ctx.strokeStyle = "#b8b8b8"; ctx.lineWidth = lw * 0.8;
+      ctx.beginPath(); ctx.moveTo(0.52 * s, -1.02 * s); ctx.lineTo(0.72 * s, -0.92 * s); ctx.stroke();
+    }
+    ctx.restore();
+  }
   function drawBuildings() {
     const s = getCellSize();
     for (const b of buildings) {
       const def = unitDef(b.type);
-      const im = unitImages[b.type];
-      if (im) {
-        const sz = s * 0.9;
-        ctx.drawImage(im, b.x - sz / 2, b.y - sz / 2, sz, sz);
+      if (def.kind === "farmer") {
+        stickFigure(b.x, b.y, s, def, "hoe", { dir: 1 });
         if (b.level > 1) {
           ctx.fillStyle = "#ffd700";
-          ctx.font = s * 0.2 + "px KaiTi, serif";
+          ctx.font = s * 0.18 + "px KaiTi, serif";
           ctx.textAlign = "center";
-          ctx.fillText("Lv" + b.level, b.x, b.y - s * 0.5);
+          ctx.fillText("Lv" + b.level, b.x, b.y - s * 0.55);
         }
         continue;
       }
-      ctx.fillStyle = "rgba(0,0,0,0.10)";
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, s * 0.42, 0, Math.PI * 2);
-      ctx.fill();
+      // 塔：底座 + 主体
+      const sc = b.recoilT > 0 ? 0.92 : 1;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.scale(sc, sc);
+      ctx.fillStyle = "#6b4a26";
+      ctx.fillRect(-s * 0.42, s * 0.10, s * 0.84, s * 0.22);
       ctx.fillStyle = def.color;
-      if (def.kind === "farmer") {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, s * 0.3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(20,10,0,0.6)";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      } else {
-        ctx.fillRect(b.x - s * 0.33, b.y - s * 0.33, s * 0.66, s * 0.66);
-        ctx.strokeStyle = "rgba(20,10,0,0.6)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(b.x - s * 0.33, b.y - s * 0.33, s * 0.66, s * 0.66);
+      ctx.fillRect(-s * 0.33, -s * 0.32, s * 0.66, s * 0.5);
+      ctx.strokeStyle = "#1c140c"; ctx.lineWidth = 2;
+      ctx.strokeRect(-s * 0.33, -s * 0.32, s * 0.66, s * 0.5);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = s * 0.28 + "px KaiTi, serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(def.short + (b.level > 1 ? b.level : ""), 0, -s * 0.06);
+      ctx.restore();
+      if (b.level > 1) {
+        ctx.fillStyle = "#ffd700";
+        ctx.font = s * 0.18 + "px KaiTi, serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Lv" + b.level, b.x, b.y - s * 0.52);
       }
-      ctx.fillStyle = "#fff";
-      ctx.font = s * 0.26 + "px KaiTi, serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(def.short + (b.level > 1 ? b.level : ""), b.x, b.y);
     }
   }
   function drawSoldiers() {
@@ -878,49 +963,16 @@
     for (const sld of soldiers) {
       if (sld.dead) continue;
       const def = unitDef(sld.type);
-      const im = unitImages[sld.type];
-      if (im) {
-        const sz = s * (def.hero ? 1.0 : 0.92);
-        ctx.drawImage(im, sld.x - sz / 2, sld.y - sz / 2, sz, sz);
-        if (sld.level > 1) {
-          ctx.fillStyle = "#ffd700";
-          ctx.font = s * 0.2 + "px KaiTi, serif";
-          ctx.textAlign = "center";
-          ctx.fillText("Lv" + sld.level, sld.x, sld.y - s * 0.5);
-        }
-        continue;
-      }
-      ctx.fillStyle = "rgba(0,0,0,0.10)";
-      ctx.beginPath();
-      ctx.arc(sld.x, sld.y, s * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = def.color;
-      ctx.beginPath();
-      ctx.arc(sld.x, sld.y, s * 0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(20,10,0,0.6)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      if (def.hero) {
-        ctx.strokeStyle = "#ffd700";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-      ctx.fillStyle = "#fff";
-      ctx.font = s * 0.26 + "px KaiTi, serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(def.short + (sld.level > 1 ? sld.level : ""), sld.x, sld.y);
-      if (sld.hitFlash > 0) {
-        ctx.globalAlpha = Math.min(1, sld.hitFlash / 0.1) * 0.7;
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(sld.x, sld.y, s * 0.32, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
+      const dir = (sld.animDir && Math.cos(sld.animDir) < -0.2) ? -1 : 1;
+      stickFigure(sld.x, sld.y, s, def, weaponFor(sld.type), { hero: !!def.hero, dir: dir });
+      if (sld.level > 1) {
+        ctx.fillStyle = "#ffd700";
+        ctx.font = s * 0.16 + "px KaiTi, serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Lv" + sld.level, sld.x, sld.y - s * 0.52);
       }
       if (sld.hp < sld.maxHp) {
-        drawHpBar(sld.x - s * 0.3, sld.y - s * 0.48, s * 0.6, 5,
+        drawHpBar(sld.x - s * 0.3, sld.y - s * 0.62, s * 0.6, 4,
           Math.max(0, sld.hp / sld.maxHp), def.hero ? "#ffd700" : "#4caf50");
       }
     }
@@ -929,59 +981,22 @@
     const s = getCellSize();
     for (const e of enemies) {
       if (e.dead) continue;
-      const r = e.isBoss ? s * CONFIG.boss.radiusMul : s * 0.26;
-      const ekey = e.isBoss ? "__boss__" : "__enemy__";
-      const eim = unitImages[ekey];
-      if (eim) {
-        const esz = s * (e.isBoss ? 1.3 : 0.9);
-        ctx.drawImage(eim, e.x - esz / 2, e.y - esz / 2, esz, esz);
-        if (e.isBoss) {
-          ctx.fillStyle = "#fff";
-          ctx.font = s * 0.2 + "px KaiTi, serif";
-          ctx.textAlign = "center";
-          ctx.fillText("将", e.x, e.y - r - s * 0.1);
-        }
-        if (e.hp < e.maxHp) {
-          const w = e.isBoss ? s * 0.9 : s * 0.56;
-          drawHpBar(e.x - w / 2, e.y - r - s * 0.3, w, 5, Math.max(0, e.hp / e.maxHp), "#e74c3c");
-        }
-        continue;
-      }
-      ctx.fillStyle = "rgba(0,0,0,0.12)";
-      ctx.beginPath();
-      ctx.arc(e.x, e.y, r * 1.35, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = e.isBoss ? CONFIG.boss.color : CONFIG.enemy.color;
-      ctx.beginPath();
-      ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
-      ctx.fill();
-      if (e.flash > 0) {
-        ctx.globalAlpha = Math.min(1, e.flash / 0.1) * 0.7;
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      stickFigure(e.x, e.y, s, null, e.isBoss ? "greatsword" : "sword", { enemy: true, boss: !!e.isBoss, dir: -1 });
       if (e.isBoss) {
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 2;
-        ctx.stroke();
         ctx.fillStyle = "#fff";
-        ctx.font = s * 0.3 + "px KaiTi, serif";
+        ctx.font = s * 0.2 + "px KaiTi, serif";
         ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("将", e.x, e.y);
+        ctx.fillText("将", e.x, e.y - s * 0.8);
       }
       if (e.hp < e.maxHp) {
         const w = e.isBoss ? s * 0.9 : s * 0.56;
-        drawHpBar(e.x - w / 2, e.y - r - s * 0.16, w, 5,
+        drawHpBar(e.x - w / 2, e.y - s * (e.isBoss ? 0.85 : 0.62), w, 4,
           Math.max(0, e.hp / e.maxHp), "#e74c3c");
       }
       if (e.dotTime > 0 || e.slowTime > 0) {
-        ctx.fillStyle = "rgba(255,140,0,0.9)";
-        ctx.font = s * 0.22 + "px KaiTi, serif";
-        ctx.fillText(e.slowTime > 0 ? "冻" : "烧", e.x + r, e.y - r);
+        ctx.fillStyle = "rgba(255,140,0,0.95)";
+        ctx.font = s * 0.18 + "px KaiTi, serif";
+        ctx.fillText(e.slowTime > 0 ? "冻" : "烧", e.x + s * 0.3, e.y - s * 0.6);
       }
     }
   }
@@ -1257,7 +1272,6 @@
     setTimeout(reportHeight, 500);
   }
 
-  preloadImages();
   renderInventory();
   refreshShop();
 
