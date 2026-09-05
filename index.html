@@ -6,6 +6,38 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
+  <!-- 首页：关卡选择（全屏覆盖层） -->
+  <div id="home-screen">
+    <div class="home-inner">
+      <header class="home-title">
+        <h1>三国守城</h1>
+        <p class="home-sub">墨守 · 水墨塔防</p>
+      </header>
+      <div id="level-cards"></div>
+      <div class="home-actions">
+        <select id="sel-diff" title="难度">
+          <option value="easy">简单</option>
+          <option value="normal" selected>普通</option>
+          <option value="hard">困难</option>
+        </select>
+        <button id="btn-home-start" type="button">开　战</button>
+        <button id="btn-mute" type="button">音效：开</button>
+      </div>
+      <p class="home-tips">拖拽上阵 · 同名同级合成 · 满怒自动放技能 · 点击单位查看详情</p>
+    </div>
+  </div>
+
+  <!-- 确认弹层：战斗中返回首页 -->
+  <div id="confirm-layer" hidden>
+    <div class="cf-panel">
+      <p class="cf-text">当前战局尚未结束，返回将放弃本局进度。</p>
+      <div class="cf-buttons">
+        <button id="btn-cf-stay" type="button">继续战斗</button>
+        <button id="btn-cf-leave" type="button">放弃并返回</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 标题并入状态栏，节省高度 -->
   <div id="hud">
     <span class="hud-title">三国守城</span>
@@ -13,11 +45,7 @@
     <span class="hud-item">粮草：<b id="hud-grain">100</b></span>
     <span class="hud-item">人口：<b id="hud-pop">0/20</b></span>
     <span class="hud-item">状态：<b id="hud-phase">准备中</b></span>
-    <select id="sel-diff" title="难度">
-      <option value="easy">简单</option>
-      <option value="normal" selected>普通</option>
-      <option value="hard">困难</option>
-    </select>
+    <button id="btn-home" type="button">⟲ 首页</button>
     <button id="btn-pause" type="button">暂停</button>
     <button id="btn-speed" type="button">速度 ×1</button>
     <button id="btn-start" type="button">开始守城</button>
@@ -32,7 +60,7 @@
       <div id="shop-items"></div>
       <div id="shop-buttons">
         <button id="btn-refresh" type="button">刷新（10 粮草）</button>
-        <button id="btn-lock" type="button">锁定</button>
+        <div id="grain-box">粮草<br><b id="grain-box-val">100</b></div>
       </div>
       <div id="sell-zone"><div class="sz-title">出 售 区</div></div>
     </div>

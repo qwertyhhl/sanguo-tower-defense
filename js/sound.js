@@ -56,7 +56,13 @@
 
   Sfx.init = function () { ensure(); };
 
+  // 静音开关（首页按钮控制）
+  Sfx.muted = false;
+  Sfx.setMuted = function (m) { Sfx.muted = !!m; return Sfx.muted; };
+  Sfx.isMuted = function () { return !!Sfx.muted; };
+
   Sfx.play = function (name) {
+    if (Sfx.muted) return;
     if (!ensure()) return;
     switch (name) {
       case "click": tone(700, 0.05, "sine", 0.06); break;
