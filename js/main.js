@@ -36,6 +36,7 @@
   let shakeMag = 0;
   let inventory = new Array(CONFIG.inventorySize).fill(null);
   let uidCounter = 1;
+  let placeSeqCounter = 0; // 场上单位部署顺序（越小越先上场，升星时优先保留）
   let curLevelId = 1;   // 当前关卡
   let curPaths = [];    // 当前关所有路径（引用自 CONFIG.levels）
   let spawnRR = 0;      // 敌人分路轮询计数
@@ -143,33 +144,46 @@
   // 升星规则：同款同等级满 mergeNeed（默认 3）个 → 并入第一个（升 1 级），其余消失
   const MERGE_NEED = CONFIG.mergeNeed || 3;
 
-  // 统计同款同等级棋子数量（备战区 + 场上一并计入）
+  // 统计同款同等级棋子数量（备战区 + 场上武将/农民/塔一并计入）
   function countOwnedCopies(type, level) {
     let n = 0;
     for (const u of inventory) if (u && u.type === type && u.level === level) n++;
     for (const s of soldiers) if (!s.dead && s.type === type && s.level === level) n++;
+    for (const b of buildings) if (b.type === type && b.level === level) n++;
     return n;
   }
-  // 找到第一个同款同等级棋子：备战区（低槽位优先）→ 场上的部署顺序
+  // 找到升星幸存者：优先场上（同款同等级中「先上场」的，placeSeq 最小）→ 备战区低槽位
   function firstCopyOf(type, level) {
+    let born = null, bornSeq = Infinity;
+    for (const s of soldiers)
+      if (!s.dead && s.type === type && s.level === level && s.placeSeq < bornSeq) { born = s; bornSeq = s.placeSeq; }
+    for (const b of buildings)
+      if (b.type === type && b.level === level && b.placeSeq < bornSeq) { born = b; bornSeq = b.placeSeq; }
+    if (born) return { kind: "field", uid: born.uid };
     for (let i = 0; i < inventory.length; i++)
       if (inventory[i] && inventory[i].type === type && inventory[i].level === level) return { kind: "inv", i: i };
-    for (const s of soldiers)
-      if (!s.dead && s.type === type && s.level === level) return { kind: "field", uid: s.uid };
     return null;
   }
-  // 合并：第一个升 1 级，其余同款同等级消失（备战区清槽、场上阵亡）
+  // 合并：幸存者升 1 级，其余同款同等级消失（备战区清槽、场上武将阵亡、场上塔/农民移除）
   function doMergeCopies(type, level) {
     const t = firstCopyOf(type, level);
     if (!t) return;
     if (t.kind === "inv") {
       inventory[t.i] = { type: type, level: level + 1 };
+      // 场上同款同等级需全部消失
+      for (const s of soldiers) if (!s.dead && s.type === type && s.level === level) killSoldier(s);
+      for (let i = buildings.length - 1; i >= 0; i--) if (buildings[i].type === type && buildings[i].level === level) buildings.splice(i, 1);
     } else {
       const s = soldiers.find(function (x) { return x.uid === t.uid; });
-      if (!s) return;
-      s.level = level + 1;
-      s.maxHp = unitDef(type).hp * statMul(level + 1);
-      s.hp = s.maxHp;
+      if (s) {
+        s.level = level + 1;
+        s.maxHp = unitDef(type).hp * statMul(level + 1);
+        s.hp = s.maxHp;
+      } else {
+        const b = buildings.find(function (x) { return x.uid === t.uid; });
+        if (!b) return;
+        b.level = level + 1;
+      }
     }
     for (let i = 0; i < inventory.length; i++)
       if (inventory[i] && inventory[i].type === type && inventory[i].level === level && !(t.kind === "inv" && t.i === i))
@@ -177,6 +191,9 @@
     for (const s of soldiers)
       if (!s.dead && s.type === type && s.level === level && !(t.kind === "field" && t.uid === s.uid))
         killSoldier(s);
+    for (let i = buildings.length - 1; i >= 0; i--)
+      if (buildings[i] && buildings[i].type === type && buildings[i].level === level && !(t.kind === "field" && t.uid === buildings[i].uid))
+        buildings.splice(i, 1);
   }
   // 自动升星：同款同等级（含备战区 + 场上）满 mergeNeed 自动并入第一个，其余消失；连锁升级
   // 例：场上 1 个关羽 + 背包 2 个关羽 → 自动合成 Lv2
@@ -202,6 +219,16 @@
         if (s.level >= CONFIG.maxLevel) continue;
         if (countOwnedCopies(s.type, s.level) >= MERGE_NEED) {
           doMergeCopies(s.type, s.level);
+          changed = true;
+          again = true;
+          break;
+        }
+      }
+      if (again) continue;
+      for (const b of buildings) {
+        if (b.level >= CONFIG.maxLevel) continue;
+        if (countOwnedCopies(b.type, b.level) >= MERGE_NEED) {
+          doMergeCopies(b.type, b.level);
           changed = true;
           again = true;
           break;
@@ -359,14 +386,16 @@
         homeC: col, homeR: row,
         hp: def.hp * statMul(level), maxHp: def.hp * statMul(level),
         cd: 0, rage: 0, castT: 0, dead: false, hitFlash: 0,
-        animT: 0, animDur: 0, animDir: 0, spawnT: 0.32
+        animT: 0, animDur: 0, animDir: 0, spawnT: 0.32,
+        placeSeq: placeSeqCounter++
       });
     } else {
       buildings.push({
         uid: uid, type: type, level: level,
         col: col, row: row, x: center.x, y: center.y,
         cd: 0, timer: def.produceInterval || def.cooldown,
-        recoilT: 0, bounceT: 0, spawnT: 0.32
+        recoilT: 0, bounceT: 0, spawnT: 0.32,
+        placeSeq: placeSeqCounter++
       });
     }
   }
@@ -2169,7 +2198,7 @@
     clearDrag();
     selected = null;
     renderInventory();
-    renderShop();
+    refreshShop(); // 进入新关卡时重新上货（下一关/重开本关）
     updateHud();
   }
 
