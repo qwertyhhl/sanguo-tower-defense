@@ -17,13 +17,13 @@ const CONFIG = {
   ],
 
   gateHp: 20,
-  startGrain: 100,
+  startGrain: 1000,
 
   // 难度预设（开局选择）
   difficulties: {
-    easy:   { name: "简单", startGrain: 150, gateHp: 25, hpMul: 0.7,  countMul: 0.8 },
-    normal: { name: "普通", startGrain: 100, gateHp: 20, hpMul: 1,    countMul: 1 },
-    hard:   { name: "困难", startGrain: 80,  gateHp: 15, hpMul: 1.4,  countMul: 1.3 }
+    easy:   { name: "简单", startGrain: 1000, gateHp: 25, hpMul: 0.7,  countMul: 0.8 },
+    normal: { name: "普通", startGrain: 1000, gateHp: 20, hpMul: 1,    countMul: 1 },
+    hard:   { name: "困难", startGrain: 1000, gateHp: 15, hpMul: 1.4,  countMul: 1.3 }
   },
 
   inventorySize: 5,
@@ -142,4 +142,5 @@ const CONFIG = {
       skill: { type: "storm", radius: 5, damage: 100, slowMul: 0.6, slowDur: 2.5, cooldown: 16 } }
   }
 };
+
 
