@@ -222,7 +222,7 @@ const CONFIG = {
   bosses: [
     { name: "山贼头目·张梁", ch: "梁", hp: 1500, speed: 0.9, damage: 25, attackInterval: 1.6, bounty: 100, color: "#c0392b",  radiusMul: 0.42,
       skill: { id: "summon", cd: 9, num: 3 } },
-    { name: "黄巾力士·管亥", ch: "亥", hp: 2000, speed: 0.85, damage: 30, attackInterval: 1.4, bounty: 120, color: "#e67e22", radiusMul: 0.45,
+    { name: "黄巾力士·管亥", ch: "亥", hp: 2000, speed: 0.85, damage: 30, attackInterval: 1.5, bounty: 120, color: "#e67e22", radiusMul: 0.45,
       skill: { id: "shield", cd: 12, dur: 5, heal: 200 } },
     { name: "西凉悍将·华雄", ch: "雄", hp: 2600, speed: 1.0, damage: 28, attackInterval: 1.2, bounty: 140, color: "#8e44ad", radiusMul: 0.46,
       skill: { id: "enrage", cd: 11, dur: 6, atkMul: 1.6, spdMul: 1.4, stomp: true, range: 2.0, stompDmg: 30 } },

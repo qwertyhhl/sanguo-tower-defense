@@ -16,7 +16,6 @@
     return ctx;
   }
 
-  // 简单音调
   function tone(freq, dur, type, vol, delay, slideTo) {
     if (!ensure()) return;
     const t0 = ctx.currentTime + (delay || 0);

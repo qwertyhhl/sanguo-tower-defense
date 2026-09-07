@@ -2,7 +2,7 @@
 // 底图（草斑/路缘/车辙/砖缝/暗角）预渲染到离屏画布缓存，每帧只做一次 drawImage。
 // LEVEL_PATHS 由 main.js 在开局/切关时赋值（多路线：所有路径末格 = 城门格）。
 
-let LEVEL_PATHS = []; // 当前关的所有路径
+let LEVEL_PATHS = []; 
 
 // 根据画布大小算出每个格子边长（像素）
 function getCellSize() {

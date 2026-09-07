@@ -166,7 +166,7 @@
     if (c.splashFactor != null) return "攻击附带 " + Math.round(c.splashFactor * w * 100) + "% 溅射";
     if (c.vamp != null) return "攻击吸血 " + Math.round(c.vamp * w * 100) + "%";
     if (c.bountyMul != null) return "击杀赏金 +" + pct(c.bountyMul) + "%";
-    if (c.enemySlow != null) return "敌军全场减速 " + Math.round((1 - Math.pow(c.enemySlow, w)) * 100) + "%";
+    if (c.enemySlow != null) return "敌军减速 " + Math.round((1 - Math.pow(c.enemySlow, w)) * 100) + "%";
     return c.desc || "";
   }
   function makeBuffs() {
