@@ -206,7 +206,7 @@ const CONFIG = {
   // 生成的敌人会取用本表字段覆盖 enemy 基础值（hp 再叠加波次血量倍率）。
   enemyTypes: [
     { name: "轻步兵",  ch: "步", minWave: 1, weight: 10, hp: 30,  dmg: 8,  attackInterval: 1.0, attackRange: 1.0, bounty: 4,  radiusMul: 0.26, speedMul: 1.0,  color: "#c0392b" },
-    { name: "重甲兵",  ch: "甲", minWave: 3, weight: 5,  hp: 90,  dmg: 14, attackInterval: 1.4, attackRange: 1.0, bounty: 7,  radiusMul: 0.33, speedMul: 0.8,  color: "#c0392b" },
+    { name: "重甲兵",  ch: "甲", minWave: 3, weight: 5,  hp: 90,  dmg: 14, attackInterval: 1.2, attackRange: 1.0, bounty: 7,  radiusMul: 0.33, speedMul: 0.8,  color: "#c0392b" },
     { name: "弓射手",  ch: "弓", minWave: 4, weight: 4,  hp: 20,  dmg: 13, attackInterval: 1.7, attackRange: 2.8, bounty: 6,  radiusMul: 0.23, speedMul: 0.75, color: "#c0392b" }
   ],
 
@@ -269,13 +269,13 @@ const CONFIG = {
     passive: [
       { id: "atkspeed", name: "如虎添翼", short: "速", desc: "全军攻速 +25%",
         color: "#e67e22", weight: 8, atkIntervalMul: 0.8 },
-      { id: "power", name: "力拔山兮", short: "力", desc: "全军攻击力 +25%",
+      { id: "power", name: "力拔山兮", short: "力", desc: "全军攻击力 +20%",
         color: "#c0392b", weight: 8, dmgMul: 1.25 },
       { id: "hp", name: "铜墙铁壁", short: "甲", desc: "全军生命上限 +25%（含已有单位）",
         color: "#2980b9", weight: 7, hpMul: 1.25 },
       { id: "splash", name: "横扫千军", short: "溅", desc: "全军攻击附带 15% 溅射",
         color: "#8e44ad", weight: 5, splashFactor: 0.15, splashRange: 1.2 },
-      { id: "vamp", name: "噬血成性", short: "嗜", desc: "全军攻击吸血 10%",
+      { id: "vamp", name: "噬血成性", short: "嗜", desc: "全军攻击吸血 15%",
         color: "#e74c3c", weight: 5, vamp: 0.1 },
       { id: "bounty", name: "广积粮", short: "粮", desc: "击杀赏金 +25%",
         color: "#f1c40f", weight: 4, bountyMul: 1.25 },
