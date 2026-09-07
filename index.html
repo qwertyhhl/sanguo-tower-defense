@@ -51,8 +51,34 @@
     <button id="btn-start" type="button">开始守城</button>
   </div>
 
-  <!-- 战场画布（宽 736 = 面板宽，16×9，每格 46px） -->
-  <canvas id="gameCanvas" width="960" height="540"></canvas>
+  <!-- 战场画布 + 右侧技能卡栏（左右并排） -->
+  <div id="board-area">
+    <canvas id="gameCanvas" width="960" height="540"></canvas>
+    <div id="card-bar">
+      <div class="card-colBox">
+        <div class="card-panel-label">主动 · 点击查看/施放</div>
+        <div id="card-active" class="card-col"></div>
+      </div>
+      <div class="card-colBox">
+        <div class="card-panel-label">被动 · 本局全员</div>
+        <div id="card-passive" class="card-col"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 技能卡详情弹层 -->
+  <div id="cardModal" hidden>
+    <div class="cm-panel">
+      <div class="cm-head">
+        <span id="cm-name"></span>
+        <span id="cm-level" class="cm-lv"></span>
+      </div>
+      <p id="cm-desc" class="cm-desc"></p>
+      <p id="cm-merge" class="cm-merge"></p>
+      <div id="cm-cast-wrap"><button id="btn-cm-cast" type="button">施放此技能</button></div>
+      <button id="btn-cm-close" type="button">关　闭</button>
+    </div>
+  </div>
 
   <!-- 战备台：宽度与地图一致：棋子 → 刷新/锁定 → 出售区，下接背包 -->
   <div id="control-panel">

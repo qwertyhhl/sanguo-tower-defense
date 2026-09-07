@@ -150,6 +150,23 @@ canvas#gameCanvas {
   border-color: #d9b45c;
   box-shadow: 0 4px 12px rgba(0,0,0,0.45);
 }
+/* 重点标记：购买即凑齐升星 → 金色发光高亮 */
+.shop-card.up-able {
+  border-color: #ffd54f;
+  background: linear-gradient(180deg, #3a2c10, #2c200c);
+  box-shadow: 0 0 10px rgba(255, 213, 79, 0.55), inset 0 0 8px rgba(255, 213, 79, 0.18);
+  animation: upablePulse 1.4s ease-in-out infinite;
+}
+@keyframes upablePulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 213, 79, 0.45), inset 0 0 6px rgba(255, 213, 79, 0.14); }
+  50%      { box-shadow: 0 0 16px rgba(255, 213, 79, 0.8), inset 0 0 12px rgba(255, 213, 79, 0.3); }
+}
+.shop-card .sc-up {
+  color: #ffd54f;
+  font-size: 12px;
+  line-height: 1.4;
+  text-shadow: 0 0 6px rgba(255, 213, 79, 0.8);
+}
 .shop-card .sc-name { font-size: 16px; color: #ffe9b0; }
 .shop-card .sc-lv { color: #b99a5e; font-size: 13px; line-height: 1.3; }
 .shop-card button {
@@ -557,4 +574,133 @@ button:focus-visible, select:focus-visible {
   color: #ffe9b0;
   border: 1px solid #c0392b;
 }
+
+/* ============================================================
+   战场 + 右侧技能卡栏（左右并排）
+   ============================================================ */
+#board-area {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 10px;
+  width: fit-content;
+  margin: 0 auto;
+}
+#card-bar {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  width: 390px;
+  padding: 10px;
+  background: linear-gradient(180deg, #221809, #1c150b);
+  border: 1px solid #5a4a2a;
+  border-radius: 9px;
+  box-sizing: border-box;
+}
+.card-colBox {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-height: 540px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.card-panel-label {
+  font-size: 12px;
+  color: #b99a5e;
+  letter-spacing: 1px;
+  text-align: center;
+  white-space: nowrap;
+}
+.card-col { display: flex; flex-direction: column; gap: 8px; }
+.card-chip {
+  padding: 6px 8px 5px;
+  border-radius: 8px;
+  border: 2px solid rgba(255,255,255,0.95);
+  background: rgba(0,0,0,0.28);
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: transform .08s, filter .08s;
+}
+.card-chip .c-short { display: block; font-size: 18px; font-weight: bold; position: relative; }
+.card-chip .c-count {
+  position: absolute; top: -4px; right: -2px;
+  font-size: 11px; font-weight: 700;
+  background: rgba(0,0,0,0.65);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 6px;
+  padding: 0 4px;
+  color: #fff;
+}
+/* 低星残余徽标：分档显示时放置于左上角，灰色描边以示优先级低于主徽 */
+.card-chip .c-low {
+  position: absolute; top: -4px; left: -2px;
+  font-size: 10px; font-weight: 700;
+  background: rgba(40,40,40,0.7);
+  border: 1px dashed rgba(255,255,255,0.55);
+  border-radius: 6px;
+  padding: 0 4px;
+  color: #ffe9b0;
+}
+.card-chip .c-name { font-size: 11px; color: rgba(255,255,255,0.9); display: block; line-height: 1.25; }
+/* 卡片阶色＝背景色：1 白 / 2 红 / 3 金 */
+.card-chip.lvl1 { background: #f0eede; border-color: #c9c2a6; color: #3a3626; }
+.card-chip.lvl1 .c-name { color: #5a5544; }
+.card-chip.lvl1 .c-short { text-shadow: 0 1px 0 rgba(255,255,255,.5); }
+.card-chip.lvl2 { background: #c0392b; border-color: #922b21; color: #fff; }
+.card-chip.lvl2 .c-name { color: #ffe6e0; }
+.card-chip.lvl2 .c-short { text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.card-chip.lvl3 { background: #e6b800; border-color: #a67c00; color: #3a2f00; }
+.card-chip.lvl3 .c-name { color: #4a3c00; }
+.card-chip.lvl3 .c-short { text-shadow: 0 1px 0 rgba(255,240,150,.5); }
+.card-chip:hover { filter: brightness(1.15); transform: translateY(-1px); }
+.card-chip .c-cd {
+  position: absolute; inset: 0;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.68);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 700; color: #fff;
+}
+/* 空提示 */
+.card-empty { font-size: 12px; color: #8a7a5a; text-align: center; line-height: 1.6; }
+
+/* ---------- 技能卡详情弹层 ---------- */
+#cardModal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 80;
+  display: flex; align-items: center; justify-content: center; }
+#cardModal[hidden] { display: none; }
+.cm-panel {
+  width: 300px; padding: 18px; border-radius: 12px;
+  background: linear-gradient(180deg, #2e2214, #1c150b);
+  border: 1px solid #8c6d3f;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+  text-align: center;
+  color: #f0d9a0;
+}
+.cm-head { display: flex; align-items: center; justify-content: center; gap: 10px; }
+#cm-name { font-size: 22px; font-weight: bold; letter-spacing: 2px; }
+.cm-lv { font-size: 17px; font-weight: 700; border-radius: 8px; padding: 2px 8px; }
+.cm-lv.lvl1 { color: #3a3626; background: #f0eede; border: 1px solid #c9c2a6; }
+.cm-lv.lvl2 { color: #fff; background: #c0392b; border: 1px solid #922b21; }
+.cm-lv.lvl3 { color: #3a2f00; background: #e6b800; border: 1px solid #a67c00; }
+.cm-desc { font-size: 14px; color: #e8d9a0; margin: 14px 0 8px; line-height: 1.6; }
+.cm-merge { font-size: 13px; color: #b99a5e; margin: 0 0 14px; }
+#cm-cast-wrap { margin-bottom: 10px; }
+#btn-cm-cast {
+  padding: 8px 14px; font-size: 15px; font-family: inherit;
+  background: linear-gradient(180deg, #d4a017, #b3820f);
+  color: #fff; border: 1px solid #e6c14e; border-radius: 8px; cursor: pointer;
+}
+#btn-cm-cast:hover { filter: brightness(1.12); }
+#btn-cm-close {
+  padding: 6px 14px; font-size: 14px; font-family: inherit;
+  background: linear-gradient(180deg, #3a2f1d, #2a2010);
+  color: #e8d9a0; border: 1px solid #6b5426; border-radius: 8px; cursor: pointer;
+}
+#btn-cm-close:hover { filter: brightness(1.1); }
 

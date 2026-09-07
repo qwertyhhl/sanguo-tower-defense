@@ -70,6 +70,7 @@
       case "coin": tone(1200, 0.06, "sine", 0.06); tone(1600, 0.09, "sine", 0.06, 0.07); break;
       case "merge": tone(660, 0.08, "triangle", 0.08); tone(990, 0.12, "triangle", 0.08, 0.09); break;
       case "boom": noise(0.22, 0.16); tone(130, 0.2, "triangle", 0.12, 0, 45); break;
+      case "card": tone(880, 0.07, "triangle", 0.06); tone(1320, 0.12, "triangle", 0.06, 0.08); break;
       case "fire": tone(480, 0.35, "sawtooth", 0.05, 0, 160); noise(0.15, 0.06); break;
       case "shoot": tone(880, 0.05, "square", 0.04); break;
       case "alarm": tone(220, 0.16, "square", 0.07); tone(180, 0.22, "square", 0.07, 0.18); break;

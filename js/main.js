@@ -1,5 +1,5 @@
 // main.js —— M4：完整战斗系统
-// 商店买单位 → 拖上场；合成升级；塔/农民/士兵/武将；
+// 商店买单位 → 拖上场；合成升级；农民/小兵/武将；
 // 士兵驻守+小范围迎击回位（A）；武将出击+技能（B）；Boss；暂停/加速。
 (function () {
   "use strict";
@@ -16,6 +16,7 @@
   let waveBossPending = false;
   let waveSpawnTimer = 0;
   let waveHpMul = 1;
+  let waveSpeed = CONFIG.enemy.speed; // 本波小兵速度（随波次递增，封顶 maxSpeed）
   let prepTimer = 0;
   let paused = false;
   let speed = 1;
@@ -31,12 +32,62 @@
   let waveBanner = null; // 波次横幅（唯一槽位：新横幅替换旧的，绝不叠加）
   let fxDeaths = [];    // 死亡残影动画
   let fxParts = [];     // 火花粒子
+  let pendingHits = []; // 挥击/放箭的延迟命中结算：伤害与特效在动作「命中帧」同步触发
+
+  // 武器命中帧（占攻击动作时长的比例）：出伤时刻 = 武器挥至目标的一瞬
+  const HIT_P = { saber: 0.36, spear: 0.42, bow: 0.55, fan: 0.5 };
+  // 待机持械角（弧度，相对水平右方；含微幅摇晃）
+  const REST_ANG = { saber: 0.95, spear: 0.3, bow: 0.55, fan: 1.35 };
+
+  function scheduleHit(s, target, dmg, delay, opts) {
+    pendingHits.push({
+      s: s, e: target, dmg: dmg, t: Math.max(0.02, delay),
+      dir: opts.dir, ranged: !!opts.ranged, color: opts.color
+    });
+  }
+  function updatePendingHits(dt) {
+    for (let i = pendingHits.length - 1; i >= 0; i--) {
+      const h = pendingHits[i];
+      h.t -= dt;
+      if (h.t > 0) continue;
+      pendingHits.splice(i, 1);
+      if (h.s.dead || !h.e || h.e.dead) continue; // 落空：目标已亡或自身阵亡，不结算
+      damageEnemy(h.e, h.dmg);
+      gainRage(h.s, CONFIG.rage.perAttack);
+      const def = unitDef(h.s.type);
+      // 全局被动：溅射 + 吸血
+      if (buffs.splashFactor > 0) {
+        const sr = buffs.splashRange * getCellSize();
+        for (const o of enemies) {
+          if (o.dead || o === h.e) continue;
+          if (Math.hypot(o.x - h.e.x, o.y - h.e.y) <= sr) damageEnemy(o, h.dmg * buffs.splashFactor);
+        }
+      }
+      if (buffs.vamp > 0 && !h.s.dead) {
+        h.s.hp = Math.min(h.s.maxHp, h.s.hp + h.dmg * buffs.vamp);
+        addFloat(h.s.x, h.s.y - getCellSize() * 0.4, "吸血", "#ff6b6b", 0.13, 0.5);
+      }
+      if (h.ranged) {
+        addBullet(h.s.x, h.s.y, h.e, h.color || def.color); // 箭矢在放弦瞬间离手
+        addSparks(h.e.x, h.e.y, 2, "#ffffff", 70);
+      } else {
+        addSlash(h.e.x, h.e.y, h.dir, def.hero ? "#ffd700" : "#ffffff"); // 斩击弧在命中处张开
+        addSparks(h.e.x, h.e.y, 3, "#ffffff", 90);
+        if (def.hero) addShake(0.08, 1);
+      }
+    }
+  }
   let animClock = 0;    // 全局动画时钟（待机呼吸用）
   let shakeTime = 0;    // 屏幕震动剩余时间
   let shakeMag = 0;
   let inventory = new Array(CONFIG.inventorySize).fill(null);
   let uidCounter = 1;
   let placeSeqCounter = 0; // 场上单位部署顺序（越小越先上场，升星时优先保留）
+  // 技能卡：击杀掉落；同名自动升阶（3张同阶 → 1张高阶），白/红/金，升阶数值更强
+  let cardLevels = {};  // 技能卡 id → { 1:x, 2:y, 3:z } 各阶持有张数
+  let activeCds = {};   // 主动卡 id → 剩余冷却秒
+  let buffs = { atkIntervalMul: 1, dmgMul: 1, hpMul: 1, bountyMul: 1, enemySlow: 1, splashFactor: 0, splashRange: 1.2, vamp: 0 };
+  let casting = null;   // 主动施法瞄准中：{ id, level }（点战场释放，右键/Esc 取消）
   let curLevelId = 1;   // 当前关卡
   let curPaths = [];    // 当前关所有路径（引用自 CONFIG.levels）
   let spawnRR = 0;      // 敌人分路轮询计数
@@ -70,6 +121,8 @@
   const confirmLayer = document.getElementById("confirm-layer");
   const btnCfStay = document.getElementById("btn-cf-stay");
   const btnCfLeave = document.getElementById("btn-cf-leave");
+  const cardPassiveEl = document.getElementById("card-passive");
+  const cardActiveEl = document.getElementById("card-active");
 
   const dragGhost = document.createElement("div");
   dragGhost.style.cssText =
@@ -81,13 +134,243 @@
 
   // ---------- 工具 ----------
   function unitDef(type) {
-    if (type.indexOf("tower.") === 0) return CONFIG.towers[type.slice(6)];
     if (type.indexOf("farmer.") === 0) return CONFIG.farmers[type.slice(7)];
     if (type.indexOf("hero.") === 0) return CONFIG.heroes[type.slice(5)];
     if (type.indexOf("soldier.") === 0) return CONFIG.soldiers[type.slice(8)];
     return null;
   }
   function statMul(level) { return Math.pow(CONFIG.levelGrowth, level - 1); }
+
+  // 由已获被动推导全局加成（累乘/累加字段约定：multiplicative 默认 1 累乘，splash/vamp 累加）
+  const SC = CONFIG.skillCards || {};
+  const BUFF_MUL = ["atkIntervalMul", "dmgMul", "hpMul", "bountyMul", "enemySlow"];
+  function passiveCfg(id) { return (SC.passive || []).find(function (p) { return p.id === id; }); }
+  function activeCfg(id) { return (SC.active || []).find(function (a) { return a.id === id; }); }
+  // 卡牌持有结构：cardLevels[id] = { 1:x, 2:y, 3:z }，3 张同★自动合成升 1 颗★
+  function cardLevelsOf(id) { return cardLevels[id] || { 1: 0, 2: 0, 3: 0 }; }
+  function cardTotal(id) { const l = cardLevelsOf(id); return l[1] + l[2] + l[3]; }
+  function cardTopLevel(id) { const l = cardLevelsOf(id); return l[3] ? 3 : (l[2] ? 2 : (l[1] ? 1 : 0)); }
+  // 星级→效果权重：★1=1，每升1★ 乘 STAR_BOOST 倍（★2=×starBoost，★3=×starBoost²）。
+  // 数值只在升星时提升（不随持有张数累加），倍数可在配置 starBoost 自行调整。
+  const STAR_BOOST = (SC.starBoost != null) ? SC.starBoost : 2.0;
+  function starWeight(star) { return Math.pow(STAR_BOOST, star - 1); }
+  function cardStarWeight(id) { return starWeight(Math.max(1, cardTopLevel(id))); }
+  // 被动卡当前星的数值（用于详情/提示展示）
+  function cardEffectText(c) {
+    if (!c) return "";
+    const w = cardStarWeight(c.id);
+    function pct(v) { return Math.round((Math.pow(v, w) - 1) * 100); }
+    if (c.atkIntervalMul != null) return "全军攻速 +" + pct(1 / c.atkIntervalMul) + "%";
+    if (c.dmgMul != null) return "全军攻击力 +" + pct(c.dmgMul) + "%";
+    if (c.hpMul != null) return "全军生命上限 +" + pct(c.hpMul) + "%";
+    if (c.splashFactor != null) return "攻击附带 " + Math.round(c.splashFactor * w * 100) + "% 溅射";
+    if (c.vamp != null) return "攻击吸血 " + Math.round(c.vamp * w * 100) + "%";
+    if (c.bountyMul != null) return "击杀赏金 +" + pct(c.bountyMul) + "%";
+    if (c.enemySlow != null) return "敌军全场减速 " + Math.round((1 - Math.pow(c.enemySlow, w)) * 100) + "%";
+    return c.desc || "";
+  }
+  function makeBuffs() {
+    const b = { atkIntervalMul: 1, dmgMul: 1, hpMul: 1, bountyMul: 1, enemySlow: 1,
+      splashFactor: 0, splashRange: 1.2, vamp: 0 };
+    for (const id in cardLevels) {
+      const c = passiveCfg(id);
+      if (!c) continue;
+      const w = cardStarWeight(id);
+      for (const kk of BUFF_MUL) if (c[kk] != null) b[kk] *= Math.pow(c[kk], w);
+      if (c.splashFactor != null) b.splashFactor += c.splashFactor * w;
+      if (c.splashRange != null) b.splashRange = Math.max(b.splashRange, c.splashRange);
+      if (c.vamp != null) b.vamp += c.vamp * w;
+    }
+    return b;
+  }
+  // 好感加成后的单位数值
+  function effHp(def, level) { return Math.round(def.hp * buffs.hpMul * statMul(level)); }
+  function effDmg(def, level) { return def.damage * buffs.dmgMul * statMul(level); }
+  function effInterval(def) { return Math.max(0.1, def.attackInterval * buffs.atkIntervalMul); }
+
+  // 击杀掉落技能卡（被动/主动均可获得）
+  function maybeDropCard(isBoss, x, y) {
+    if (!SC || (!(SC.passive && SC.passive.length) && !(SC.active && SC.active.length))) return;
+    if (isBoss ? !SC.bossDrop : Math.random() > (SC.dropChance || 0)) return;
+    let pool = [];
+    for (const p of (SC.passive || [])) pool.push(p);
+    for (const a of (SC.active || [])) pool.push(a);
+    if (!pool.length) return;
+    let sum = 0; for (const p of pool) sum += (p.weight || 1);
+    let r = Math.random() * sum;
+    let pick = pool[pool.length - 1];
+    for (const p of pool) { r -= (p.weight || 1); if (r <= 0) { pick = p; break; } }
+    addCard(pick.id);
+    addFloat(x, y - getCellSize() * 0.4, "技能卡", "#ffd97a", 0.2, 0.9);
+    if (window.SFX) SFX.play("card");
+  }
+  // 获得一张卡：同名同阶 3 张自动合并升 1 阶
+  function addCard(id) {
+    if (!cardLevels[id]) cardLevels[id] = { 1: 0, 2: 0, 3: 0 };
+    cardLevels[id][1]++;
+    let mergedUp = false;
+    for (let L = 1; L <= 2; L++) {
+      while (cardLevels[id][L] >= 3) { cardLevels[id][L] -= 3; cardLevels[id][L + 1]++; mergedUp = true; }
+    }
+    const pc = passiveCfg(id);
+    // 生命类被动：变强时对场上已有单位即时抬高上限
+    if (pc && pc.hpMul) {
+      for (const s of soldiers) { if (!s.dead) { s.maxHp = effHp(unitDef(s.type), s.level); s.hp = Math.min(s.maxHp, s.hp); } }
+    }
+    buffs = makeBuffs();
+    renderCardBar();
+    const c = pc || activeCfg(id);
+    if (mergedUp) setHint("技能升阶：" + (c ? c.name : "？") + " → ★" + cardTopLevel(id) + "（效果提升）");
+    else setHint("获得技能：" + (c ? c.name : "？") + (c && pc ? "：" + cardEffectText(c) : ""));
+  }
+  // 渲染右侧两列卡片：主动列在前，被动列在后
+  function renderCardBar() {
+    if (!cardPassiveEl || !cardActiveEl) return;
+    // 主动列（前）
+    cardActiveEl.innerHTML = "";
+    let anyA = false;
+    for (const c of (SC.active || [])) {
+      if (cardTopLevel(c.id) === 0) continue;
+      anyA = true;
+      cardActiveEl.appendChild(makeChip(c, (activeCds[c.id] || 0)));
+    }
+    if (!anyA) cardActiveEl.innerHTML = "<span class='card-empty'>暂无主动技能<br>战斗中点卡片可施放</span>";
+    // 被动列（后）
+    cardPassiveEl.innerHTML = "";
+    let anyP = false;
+    for (const c of (SC.passive || [])) {
+      if (cardTopLevel(c.id) === 0) continue;
+      anyP = true;
+      cardPassiveEl.appendChild(makeChip(c, -1));
+    }
+    if (!anyP) cardPassiveEl.innerHTML = "<span class='card-empty'>暂无被动技能<br>击杀敌人掉落</span>";
+  }
+  function makeChip(c, cd) {
+    const info = cardTopLevel(c.id);
+    const isActive = cd !== -1;
+    const d = document.createElement("div");
+    d.className = "card-chip lvl" + Math.max(1, info) + (isActive ? " act" : "");
+    d.title = c.name + "：" + (isActive ? c.desc : cardEffectText(c));
+    // 分档显示持有数：主徽＝最高星张数，有低星残余时左上角追加小徽（如 ★2×1 ＋★1×2）
+    const lv = cardLevelsOf(c.id);
+    const tiers = [];
+    for (let L = 3; L >= 1; L--) if (lv[L] > 0) tiers.push({ L: L, n: lv[L] });
+    let mainHtml = "×0", lowHtml = "";
+    if (tiers.length) {
+      mainHtml = "★" + tiers[0].L + "×" + tiers[0].n;
+      if (tiers.length > 1) lowHtml = "+" + tiers.slice(1).map(t => "★" + t.L + "×" + t.n).join("");
+    }
+    d.innerHTML = "<span class='c-short' style='color:" + c.color + "'>" + c.short +
+      "<span class='c-count'>" + mainHtml + "</span>" +
+      (lowHtml ? "<span class='c-low'>" + lowHtml + "</span>" : "") + "</span>" +
+      "<span class='c-name'>" + c.name + "</span>" +
+      (isActive && cd > 0 ? "<span class='c-cd'>" + Math.ceil(cd) + "</span>" : "");
+    // 点击卡片 → 查看详情
+    d.addEventListener("click", function () { openCardDetail(c.id); });
+    return d;
+  }
+
+  // ---------- 卡片详情弹层 ----------
+  let cardModal = null, cmName = null, cmLevel = null, cmDesc = null, cmMerge = null, cmCastBtn = null;
+  function hookCardModal() {
+    cardModal = document.getElementById("cardModal");
+    if (!cardModal) return;
+    cmName = document.getElementById("cm-name");
+    cmLevel = document.getElementById("cm-level");
+    cmDesc = document.getElementById("cm-desc");
+    cmMerge = document.getElementById("cm-merge");
+    cmCastBtn = document.getElementById("btn-cm-cast");
+    document.getElementById("btn-cm-close").addEventListener("click", closeCardModal);
+    if (cmCastBtn) cmCastBtn.addEventListener("click", function () {
+      const id = cmCastBtn.getAttribute("data-id");
+      if (phase !== "battle") { setHint("战斗中才能施放主动技能"); return; }
+      if (activeCds[id] > 0) { setHint("该技能冷却中，请稍候"); return; }
+      const lv = parseInt(cmCastBtn.getAttribute("data-level"), 10) || 1;
+      closeCardModal();
+      if (casting) cancelCast();
+      casting = { id: id, level: lv };
+      if (canvas) canvas.style.cursor = "crosshair";
+      const c = activeCfg(id);
+      setHint("已选「" + (c ? c.name : "") + "」——在战场上点击落点释放，右键/Esc 取消");
+    });
+  }
+  function openCardDetail(id) {
+    if (!cardModal) return;
+    const pc = passiveCfg(id), ac = activeCfg(id);
+    const c = pc || ac;
+    if (!c) return;
+    const cnt = cardTotal(id);
+    const lv = Math.max(1, cardTopLevel(id));
+    cmName.textContent = c.name;
+    cmLevel.textContent = "★" + lv;
+    cmLevel.className = "cm-lv lvl" + lv;
+    // 被动显示当前实际效果数值（随升阶提升）；主动显示技能描述
+    cmDesc.textContent = pc ? ("当前效果：" + cardEffectText(c)) : c.desc;
+    const atMax = lv >= 3;
+    cmMerge.textContent = pc
+      ? "已拥有 ×" + cnt + " · 当前★" + lv + (atMax
+        ? "（已达最高阶，多余卡片继续增强效果）"
+        : " · 集齐 3 张★" + lv + " 合成★" + (lv + 1) + "（数量将减少、效果大幅提升）")
+      : "已拥有 ×" + cnt + " · 当前★" + lv + (atMax
+        ? "（已达最高阶）"
+        : " · 集齐 3 张★" + lv + " 合成★" + (lv + 1) + "（数量将减少、威力提升）");
+    if (cmCastBtn) {
+      cmCastBtn.style.display = ac ? "block" : "none";
+      cmCastBtn.setAttribute("data-id", id);
+      cmCastBtn.setAttribute("data-level", lv);
+    }
+    cardModal.hidden = false;
+  }
+  function closeCardModal() { if (cardModal) cardModal.hidden = true; }
+  function cancelCast() {
+    casting = null;
+    if (canvas) canvas.style.cursor = "default";
+    renderCardBar();
+  }
+  // 手动施放：在战场坐标 (px,py) 处释放（按主动卡等级放大效果）
+  function resolveCast(px, py) {
+    if (!casting) { renderCardBar(); return; }
+    const meta = activeCfg(casting.id);
+    if (!meta) { casting = null; renderCardBar(); return; }
+    const k = starWeight(casting.level); // 主动技能伤害/数值按星级放大（同 starBoost 可配置）
+    const cs = getCellSize();
+    const _rad = (meta.radius || 2) * cs;
+    const s = Math.min(1, Math.max(0.28, _rad));
+    addExplosion(px, py, s, 0.4);
+    if (window.SFX) SFX.play("boom");
+    switch (meta.id) {
+      case "thunder":
+      case "rain": {
+        const r2 = _rad;
+        for (const e of enemies) {
+          if (e.dead) continue;
+          if (Math.hypot(e.x - px, e.y - py) <= r2) {
+            damageEnemy(e, (meta.dmg || 0) * k);
+            if (meta.stun) applyStun(e, meta.stun);
+            addSparks(e.x, e.y, 5, "#fff", 120);
+          }
+        }
+        break;
+      }
+      case "freeze":
+        for (const e of enemies) { if (!e.dead) applySlow(e, meta.slowMul, meta.slowDur); }
+        setHint("全场敌军减速 " + Math.round((1 - meta.slowMul) * 100) + "%");
+        break;
+      case "healwall":
+        for (const u of soldiers) { if (!u.dead) { u.hp = Math.min(u.maxHp, u.hp + (meta.heal || 0) * k); addFloat(u.x, u.y - cs * 0.4, "+" + Math.round((meta.heal || 0) * k), "#7dffb0", 0.16, 0.6); } }
+        break;
+      case "grainfest":
+        grain += Math.round((meta.grain || 0) * k);
+        addFloat(px, py, "+" + Math.round((meta.grain || 0) * k) + "粮", "#ffd700", 0.22, 0.8);
+        updateHud();
+        break;
+    }
+    activeCds[casting.id] = meta.cd || 0;
+    casting = null;
+    if (canvas) canvas.style.cursor = "default";
+    renderCardBar();
+    updateHud();
+  }
   function addShake() { /* 震屏已关闭（保留接口，想开启时恢复实现即可） */ }
   function addFloat(x, y, text, color, size, life) {
     fxFloats.push({ x: x, y: y, text: text, color: color || "#fff", size: size || 0.2, life: life || 0.6, ttl: life || 0.6 });
@@ -108,6 +391,8 @@
     const u = t - 1;
     return 1 + (c + 1) * u * u * u + c * u * u;
   }
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  function smoothstep(t) { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }
   function addSparks(x, y, n, color, speed) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -144,7 +429,7 @@
   // 升星规则：同款同等级满 mergeNeed（默认 3）个 → 并入第一个（升 1 级），其余消失
   const MERGE_NEED = CONFIG.mergeNeed || 3;
 
-  // 统计同款同等级棋子数量（备战区 + 场上武将/农民/塔一并计入）
+  // 统计同款同等级棋子数量（备战区 + 场上武将/小兵/农民一并计入）
   function countOwnedCopies(type, level) {
     let n = 0;
     for (const u of inventory) if (u && u.type === type && u.level === level) n++;
@@ -164,7 +449,7 @@
       if (inventory[i] && inventory[i].type === type && inventory[i].level === level) return { kind: "inv", i: i };
     return null;
   }
-  // 合并：幸存者升 1 级，其余同款同等级消失（备战区清槽、场上武将阵亡、场上塔/农民移除）
+  // 合并：幸存者升 1 级，其余同款同等级消失（备战区清槽、场上武将/小兵阵亡、场上农民移除）
   function doMergeCopies(type, level) {
     const t = firstCopyOf(type, level);
     if (!t) return;
@@ -307,13 +592,18 @@
     for (const b of buildings) if (b.col === col && b.row === row) return b;
     return null;
   }
-  // 某点周围 rad 格内的己方武将（任意方向，供全向交战判定）
+  // 某点附近的己方武将（供全向交战判定）
+  // rad：可选半径覆盖。传值时按指定半径扫描（敌人用自身 attackRange）；
+  // 不传则按各武将自身出手距离：近战 atkRange，远程默认 1.5 格。
   function soldiersNear(x, y, rad) {
-    const out = [];
-    const r = rad * getCellSize();
+    const out = [], cs = getCellSize();
     for (const s of soldiers) {
       if (s.dead) continue;
-      if (Math.hypot(s.x - x, s.y - y) <= r) out.push(s);
+      const def = unitDef(s.type);
+      const r = (rad !== undefined)
+        ? rad
+        : ((!def.ranged && def.atkRange) ? def.atkRange : 1.5);
+      if (Math.hypot(s.x - x, s.y - y) <= r * cs) out.push(s);
     }
     return out;
   }
@@ -368,7 +658,7 @@
     if (def.kind === "soldier") {
       if (!isPathCell(col, row)) return { ok: false, msg: "士兵/武将要放在路上" };
     } else {
-      if (isPathCell(col, row)) return { ok: false, msg: "塔/农民要放在草地格" };
+      if (isPathCell(col, row)) return { ok: false, msg: "农民要放在草地格" };
       if (buildingAt(col, row)) return { ok: false, msg: "这里已经有建筑了" };
     }
     if (!fromField && fieldCount() >= CONFIG.popCap) return { ok: false, msg: "人口已满（" + CONFIG.popCap + "）" };
@@ -384,7 +674,7 @@
         uid: uid, type: type, level: level,
         col: col, row: row, x: center.x, y: center.y,
         homeC: col, homeR: row,
-        hp: def.hp * statMul(level), maxHp: def.hp * statMul(level),
+        hp: effHp(def, level), maxHp: effHp(def, level),
         cd: 0, rage: 0, castT: 0, dead: false, hitFlash: 0,
         animT: 0, animDur: 0, animDir: 0, spawnT: 0.32,
         placeSeq: placeSeqCounter++
@@ -456,13 +746,17 @@
       const def = unitDef(item.type);
       const div = document.createElement("div");
       div.className = "shop-card";
+      // 购买即凑齐升星（背包/场上已有 mergeNeed-1 个同款同级）→ 重点标记高亮
+      const canUp = countOwnedCopies(item.type, 1) >= MERGE_NEED - 1;
+      if (canUp) div.classList.add("up-able");
       // 点击整张卡片即可购买（含按钮区域；按钮不另绑事件，避免冒泡重复触发）
       div.addEventListener("click", function () { buyFromShop(item.type, i); });
       const btn = document.createElement("button");
       btn.textContent = "购买 " + def.cost + " 粮草";
       shopButtons.push(btn);
       div.innerHTML = "<div class='sc-name'>" + def.name + "</div>" +
-                      "<div class='sc-lv'>1 级</div>";
+                      "<div class='sc-lv'>1 级</div>" +
+                      (canUp ? "<div class='sc-up'>可升星</div>" : "");
       div.appendChild(btn);
       shopItems.appendChild(div);
     }
@@ -474,13 +768,31 @@
     const def = unitDef(type);
     if (grain < def.cost) { setHint("粮草不足"); return; }
     const idx = freeSlot();
-    if (idx < 0) { setHint("背包已满（5 格），先部署或合成腾位置"); return; }
-    grain -= def.cost;
-    inventory[idx] = { type: type, level: 1 };
+    let merged = false;
+    if (idx < 0) {
+      // 背包已满：若能凑满同款同级升星，仍可购买并即时自动升星（仿金铲铲：买到的张直接参与合成，不占格）
+      if (countOwnedCopies(type, 1) >= MERGE_NEED - 1) {
+        grain -= def.cost;
+        inventory.push({ type: type, level: 1 }); // 临时挂到末尾参与 autoMerge 合并
+        autoMergeInventory();
+        inventory.pop();                          // 清掉合成后残留的临时空槽
+        merged = true;
+      } else {
+        setHint("背包已满（5 格），先部署或合成腾位置"); return;
+      }
+    } else {
+      grain -= def.cost;
+      inventory[idx] = { type: type, level: 1 };
+    }
     shopStock[index] = null;
-    setHint("已购入 " + def.name + " → 放入背包第 " + (idx + 1) + " 格");
-    if (window.SFX) SFX.play("buy");
-    autoMergeInventory(); // 凑满 3 个自动升星
+    if (merged) {
+      setHint("背包满也能升星：" + def.name + " 自动合成升 1 级");
+      if (window.SFX) SFX.play("merge");
+    } else {
+      setHint("已购入 " + def.name + " → 放入背包第 " + (idx + 1) + " 格");
+      if (window.SFX) SFX.play("buy");
+    }
+    autoMergeInventory(); // 兜底触发连锁升星
     renderInventory();
     renderShop();
     updateHud();
@@ -638,25 +950,53 @@
   }
 
   // ---------- 敌军 / 波次 ----------
+  // 按当前波次权重随机选择一个可用兵种（只挑 minWave 已解锁的）
+  function pickEnemyType() {
+    const pool = (CONFIG.enemyTypes || [])
+      .filter(t => t.minWave <= waveIndex)
+      .map(t => t);
+    if (pool.length === 0) return { name: "敌兵", hp: CONFIG.enemy.hp, dmg: CONFIG.enemy.damage,
+      attackInterval: CONFIG.enemy.attackInterval, attackRange: CONFIG.enemy.attackRange,
+      bounty: CONFIG.enemy.bounty, radiusMul: CONFIG.enemy.radiusMul || 0.26,
+      speedMul: CONFIG.enemy.speedMul || 1, color: CONFIG.enemy.color };
+    let sum = 0; for (const t of pool) sum += (t.weight || 1);
+    let r = Math.random() * sum;
+    for (const t of pool) { r -= (t.weight || 1); if (r <= 0) return t; }
+    return pool[pool.length - 1];
+  }
   function spawnEnemy(isBoss) {
     const p = spawnRR % curPaths.length;   // 轮询分路：公平分配到各入口
     spawnRR++;
     const first = curPaths[p][0];
     const pos = cellCenter(first.c, first.r);
+    // 批量出兵时同批小兵在出生格附近随机散布，避免完全重叠
+    const jit = getCellSize() * 0.28;
+    const jx = pos.x + (Math.random() - 0.5) * jit * 2;
+    const jy = pos.y + (Math.random() - 0.5) * jit * 2;
     if (isBoss) {
+      // 按登场回合轮换 Boss（第 5 波第 1 个，之后每 bossEvery 波换下一个，循环）
+      const list = (CONFIG.bosses && CONFIG.bosses.length) ? CONFIG.bosses : [CONFIG.boss];
+      const chosen = list[Math.floor(((waveIndex - 1) / (CONFIG.waves.bossEvery || 5))) % list.length];
+      const bd = Object.assign({}, CONFIG.boss, chosen);   // 兜底合并默认 Boss 字段
       const scale = 1 + 0.1 * (waveIndex - 1);
       enemies.push({
-        path: p, at: 0, x: pos.x, y: pos.y,
-        hp: CONFIG.boss.hp * scale, maxHp: CONFIG.boss.hp * scale,
-        isBoss: true,
+        path: p, at: 0, x: jx, y: jy,
+        hp: bd.hp * scale, maxHp: bd.hp * scale,
+        isBoss: true, def: bd,
         fighting: false, attackCd: 0, dead: false, flash: 0,
         stunTime: 0, ampTime: 0, ampMul: 1,
+        // 技能状态
+        skillCd: (bd.skill && bd.skill.cd) ? bd.skill.cd * 0.5 : 999, // 首次技能更快放出
+        shieldTime: 0, shieldMax: 0,
+        buffAtkMul: 1, buffAtkTime: 0, buffSpdMul: 1, buffSpdTime: 0,
         age: 0, walkPhase: Math.random() * Math.PI * 2, lungeT: 0, lungeDir: 0
       });
     } else {
+      const def = pickEnemyType();               // 随机兵种
+      const hp = def.hp * waveHpMul;
       enemies.push({
-        path: p, at: 0, x: pos.x, y: pos.y,
-        hp: CONFIG.enemy.hp * waveHpMul, maxHp: CONFIG.enemy.hp * waveHpMul,
+        path: p, at: 0, x: jx, y: jy,
+        hp: hp, maxHp: hp, def: def,
         isBoss: false,
         fighting: false, attackCd: 0, dead: false, flash: 0,
         slowMul: 1, slowTime: 0, dotDmg: 0, dotInterval: 0, dotTime: 0, dotTimer: 0,
@@ -665,7 +1005,72 @@
       });
     }
   }
+  // Boss 技能文案（供信息面板显示）
+  function skillDesc(sk) {
+    if (!sk) return "";
+    const cd = sk.cd ? sk.cd + " 秒" : "";
+    switch (sk.id) {
+      case "summon": return "召唤小兵 ×" + (sk.num || 3) + "（每 " + cd + "）";
+      case "shield": return "护盾免疫 + 回血 " + (sk.heal || 0) + "（" + (sk.dur || 5) + " 秒 / " + cd + "）";
+      case "enrage": return "狂暴攻速" + (sk.atkMul || 1.5) + "×" + (sk.spdMul || 1.3) + "× + 践踏" + (sk.range || 2) + "格（每 " + cd + "）";
+      case "fury": return "狂暴 + 践踏 + 召唤 ×" + (sk.summon || 2) + "（每 " + cd + "）";
+      default: return "";
+    }
+  }
+
+  // Boss 技能施放：按 skill.id 分发不同效果（参数都在 config.bosses[].skill 里可调）
+  function castBossSkill(e) {
+    const sk = e.def && e.def.skill;
+    if (!sk) return;
+    const cs = getCellSize();
+    const s = e.def;
+    addFloat(e.x, e.y - cs * 0.9, "技", "#ffd700", 0.4, 0.9);   // 通用施法花字
+    addSparks(e.x, e.y, 10, "#ffd700", 140);
+    addShake(0.12, 1.6);
+
+    if (sk.id === "summon") {
+      // 召唤：立刻补几只小兵
+      const n = sk.num || 3;
+      for (let k = 0; k < n; k++) spawnEnemy(false);
+      if (window.SFX) SFX.play("alarm");
+    } else if (sk.id === "shield") {
+      // 护盾 + 回血：一段时间内免疫伤害，并回一口血
+      e.shieldTime = sk.dur || 5;
+      e.shieldMax = e.shieldTime;
+      if (sk.heal) e.hp = Math.min(e.maxHp, e.hp + sk.heal);
+      addFloat(e.x, e.y - cs, "护盾 +" + (sk.heal || 0), "#8efff0", 0.5, 1);
+    } else if (sk.id === "enrage" || sk.id === "fury") {
+      // 狂暴：提升攻速与移速
+      e.buffAtkMul = sk.atkMul || 1.5; e.buffAtkTime = sk.dur || 5;
+      e.buffSpdMul = sk.spdMul || 1.3; e.buffSpdTime = sk.dur || 5;
+      e.buffAtkMul -= 1; e.buffSpdMul -= 1;            // 适配 buffAtkTime 归零逻辑（存增量）
+      addFloat(e.x, e.y - cs, "狂暴", "#ff8a4d", 0.5, 1);
+      if (sk.stomp) stomp(e, sk);                       // 践踏
+      if (sk.id === "fury" && sk.summon) for (let k = 0; k < sk.summon; k++) spawnEnemy(false);
+    }
+  }
+
+  // Boss 践踏：对周围 range 内所有武将造成一次 AOE 伤害（不是普通攻击的单个目标）
+  function stomp(e, sk) {
+    const r = (sk.range || 2) * getCellSize();
+    const dmg = sk.stompDmg || 30;
+    addShake(0.2, 2);
+    addSparks(e.x, e.y, 14, "#ff6b3d", 180);
+    for (let i = soldiers.length - 1; i >= 0; i--) {
+      const sl = soldiers[i];
+      if (sl.dead) continue;
+      if (Math.hypot(sl.x - e.x, sl.y - e.y) <= r) {
+        sl.hp -= dmg;
+        sl.hitFlash = 0.15;
+        addFloat(sl.x, sl.y - 20, "-" + dmg, "#ff5252", 0.3, 0.7);
+        gainRage(sl, CONFIG.rage.perHurt);
+        if (sl.hp <= 0) killSoldier(sl);
+      }
+    }
+  }
+
   function arriveGate(e) {
+    e.dead = true; // 已入城：不再接收任何延迟命中结算
     gateHp -= e.isBoss ? 10 : 1;
     if (window.SFX) SFX.play("alarm");
     const end = gateCell();
@@ -675,18 +1080,26 @@
     if (gateHp <= 0) { gateHp = 0; phase = "over"; if (window.SFX) SFX.play("lose"); updateHud(); }
   }
   function damageEnemy(e, dmg) {
+    if (e.dead) return;
+    if (e.shieldTime > 0) {                       // Boss 护盾：期间免疫伤害
+      e.shieldTime -= 0.02;                       // 每击略削护盾（视觉反馈）
+      addFloat(e.x, e.y - getCellSize() * 0.5, "格挡", "#8efff0", 0.18, 0.5);
+      return;
+    }
     if (e.ampTime > 0) dmg *= (e.ampMul || 1);   // 易伤：伤害加深
     e.hp -= dmg;
     if (dmg > 0 && !e.dead) e.flash = 0.1; // 受击闪白
     if (dmg > 0 && !e.dead) addFloat(e.x, e.y - getCellSize() * 0.5, String(Math.round(dmg)), "#ffffff", 0.16, 0.5);
     if (e.hp <= 0 && !e.dead) {
       e.dead = true;
-      const bounty = e.isBoss ? CONFIG.boss.bounty : CONFIG.enemy.bounty;
+      const d = e.def || CONFIG.enemy;
+      const bounty = (e.isBoss ? (d.bounty || CONFIG.boss.bounty) : d.bounty) * buffs.bountyMul;
       grain += bounty;
-      addFloat(e.x, e.y, "+" + bounty + "粮", "#ffd700", 0.24, 0.8);
+      addFloat(e.x, e.y, "+" + Math.round(bounty) + "粮", "#ffd700", 0.24, 0.8);
       const cs = getCellSize();
-      addDeathFx(e.x, e.y, e.isBoss ? cs * CONFIG.boss.radiusMul : cs * 0.26,
-        e.isBoss ? CONFIG.boss.color : CONFIG.enemy.color, e.isBoss, e.isBoss ? "将" : null);
+      addDeathFx(e.x, e.y, cs * ((e.isBoss ? d : d).radiusMul || 0.26),
+        e.isBoss ? (d.color || CONFIG.boss.color) : d.color, e.isBoss, e.isBoss ? ((d.ch) || "将") : null);
+      maybeDropCard(e.isBoss, e.x, e.y); // 击杀掉落技能卡
     }
   }
   function applySlow(e, mul, dur) {
@@ -745,16 +1158,21 @@
     if (waveBossPending) waveToSpawn += 1;
     waveSpawnTimer = 0.3;
     waveHpMul = (1 + CONFIG.waves.hpGrowth * (n - 1)) * diffConf().hpMul;
+    // 小兵速度前期慢、随波次加快，达到 maxSpeed 后封顶
+    waveSpeed = Math.min(CONFIG.enemy.speed + (CONFIG.enemy.speedPerWave || 0) * (n - 1), CONFIG.enemy.maxSpeed || CONFIG.enemy.speed);
     announce("第 " + n + " 波 · 来袭", "#ff8c6a");
     // 波次间不再自动刷新商店（商店始终保留当前上架，需手动刷新）→ 锁定已无意义
     updateHud();
   }
-  function onWaveCleared() {
+  function grantWaveReward() {
     const bonus = CONFIG.waves.bonusBase + waveIndex * CONFIG.waves.bonusPerWave;
     grain += bonus;
     if (window.SFX) SFX.play("coin");
     setHint("第 " + waveIndex + " 波守住！奖励 " + bonus + " 粮草");
     recordWaveCleared(); // 存档：最高波次
+  }
+  function onWaveCleared() {
+    grantWaveReward();
     if (waveIndex >= CONFIG.waves.total && !isEndlessLevel()) {
       phase = "win";
       if (window.SFX) SFX.play("win");
@@ -782,14 +1200,21 @@
     }
     if (phase !== "battle") return;
 
-    // 出生
+    // 出生：少量错峰出兵（spawnEnemy 内部轮询分配出生点，故每次只从少数几个点各出一两只，绝不全部点同时爆）
+    // 难度随波次递增：单次放出数温和上调（上限 < 路数，保证不会所有点齐涌）+ 放兵间隔逐波缩短
     if (waveToSpawn > 0) {
       waveSpawnTimer -= dt;
       if (waveSpawnTimer <= 0) {
-        if (waveBossPending) { spawnEnemy(true); waveBossPending = false; }
-        else { spawnEnemy(false); }
-        waveToSpawn--;
-        waveSpawnTimer = CONFIG.enemy.spawnInterval;
+        const maxPerTick = Math.max(1, curPaths.length - 1);   // 一次最多占用的出生点数（留一个点缓冲）
+        const batchBoost = Math.floor((waveIndex - 1) / 4);    // 大约每 4 波，单次多放一个
+        const batch = Math.min(maxPerTick, (CONFIG.enemy.spawnBatch || 1) + batchBoost);
+        const spawn = Math.min(batch, waveToSpawn);
+        for (let i = 0; i < spawn; i++) {
+          if (waveBossPending) { spawnEnemy(true); waveBossPending = false; }
+          else spawnEnemy(false);
+          waveToSpawn--;
+        }
+        waveSpawnTimer = Math.max(0.22, (CONFIG.enemy.spawnInterval || 0.6) * Math.pow(0.9, waveIndex - 1));
       }
     }
 
@@ -797,69 +1222,33 @@
     updateSoldiers(dt);
     updateHeroSkills(dt);
     updateEnemies(dt);
+    updatePendingHits(dt); // 命中帧结算：伤害/怒气/命中特效与挥击动作同步
+
+    // 主动技能卡冷却推进（战斗中）
+    let cdChanged = false;
+    for (const id in activeCds) if (activeCds[id] > 0) { activeCds[id] = Math.max(0, activeCds[id] - dt); cdChanged = true; }
+    if (casting || cdChanged) renderCardBar();
 
     enemies = enemies.filter(function (e) { return !e.dead; });
     soldiers = soldiers.filter(function (s) { return !s.dead; });
 
-    if (waveToSpawn <= 0 && enemies.length === 0 && phase === "battle") onWaveCleared();
+    // 前一波未结束（场上还有敌人）决不放出下一波；出尽且清场后才开下一波
+    if (phase === "battle" && waveToSpawn <= 0 && enemies.length === 0) onWaveCleared();
     updateHud();
   }
 
-  // 建筑：塔攻击 / 农民产粮
+  // 建筑：农民产粮
   function updateBuildings(dt) {
     for (const b of buildings) {
       const def = unitDef(b.type);
-      if (def.kind === "farmer") {
-        b.timer -= dt;
-        if (b.timer <= 0) {
-          const got = def.produce[b.level - 1];
-          grain += got;
-          b.timer = def.produceInterval;
-          b.bounceT = 0.45;   // 产粮欢快弹跳
-          addFloat(b.x, b.y - getCellSize() * 0.5, "+" + got + "粮", "#ffd700", 0.18, 0.7);
-        }
-        continue;
-      }
-      b.cd -= dt;
-      if (b.cd > 0) continue;
-      const dmg = def.damage * statMul(b.level);
-      if (def.splash > 0) {
-        // 投石车：溅射
-        const target = nearestEnemy(b.x, b.y, def.range);
-        if (!target) continue;
-        damageEnemy(target, dmg);
-        const s = getCellSize();
-        for (const e of enemies) {
-          if (e.dead || e === target) continue;
-          const dx = e.x - target.x, dy = e.y - target.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist <= def.splash * s) damageEnemy(e, dmg * def.splashFactor);
-        }
-        addExplosion(target.x, target.y, def.splash * s, 0.35);
-        addBullet(b.x, b.y, target, def.color);
-        b.recoilT = 0.12;
-        addShake(0.15, 2);
-        if (window.SFX) SFX.play("boom");
-        b.cd = def.cooldown;
-      } else if (def.dotDmg) {
-        // 火攻台：伤害 + 减速 + 灼烧
-        const target = nearestEnemy(b.x, b.y, def.range);
-        if (!target) continue;
-        damageEnemy(target, dmg);
-        applySlow(target, def.slowMul, def.slowDur);
-        applyDot(target, def.dotDmg * statMul(b.level), def.dotInterval, def.dotDur);
-        addBullet(b.x, b.y, target, def.color);
-        b.recoilT = 0.12;
-        if (window.SFX) SFX.play("fire");
-        b.cd = def.cooldown;
-      } else {
-        // 连弩台
-        const target = nearestEnemy(b.x, b.y, def.range);
-        if (!target) continue;
-        damageEnemy(target, dmg);
-        addBullet(b.x, b.y, target, def.color);
-        b.recoilT = 0.12;
-        b.cd = def.cooldown;
+      if (def.kind !== "farmer") continue;
+      b.timer -= dt;
+      if (b.timer <= 0) {
+        const got = def.produce[b.level - 1];
+        grain += got;
+        b.timer = def.produceInterval;
+        b.bounceT = 0.45;   // 产粮欢快弹跳
+        addFloat(b.x, b.y - getCellSize() * 0.5, "+" + got + "粮", "#ffd700", 0.18, 0.7);
       }
     }
   }
@@ -870,59 +1259,70 @@
       const def = unitDef(s.type);
 
       if (def.ranged) {
-        // 远程：站桩射击（射击后坐动画）
+        // 远程：站桩拉弓，放弦瞬间（命中帧）出伤
         s.cd -= dt;
         if (s.cd <= 0) {
           const target = nearestEnemy(s.x, s.y, def.range);
           if (target) {
-            damageEnemy(target, def.damage * statMul(s.level));
-            gainRage(s, CONFIG.rage.perAttack);
-            s.cd = def.attackInterval;
-            s.animDur = 0.22;
+            s.cd = effInterval(def);
+            s.animDur = 0.3;
             s.animT = s.animDur;
             s.animDir = Math.atan2(target.y - s.y, target.x - s.x);
-            addBullet(s.x, s.y, target, def.color);
+            const hp = HIT_P[def.weapon] !== undefined ? HIT_P[def.weapon] : 0.5;
+            scheduleHit(s, target, effDmg(def, s.level), s.animDur * hp,
+              { dir: s.animDir, ranged: true, color: def.color });
           }
         }
         continue;
       }
 
       // 近战：全向寻敌（真实距离判定，四周任意方向的敌人都可交战，不限同一条路）
-      // 活动范围以驻守格（放置位置）为锚点、engage 格为半径，绝不追到出生点
+      // 追击半径（engage，锚点圈）与攻击距离（atkRange，出手圈）独立配置
       const cs = getCellSize();
       const homePt = cellCenter(s.homeC, s.homeR);
+      const atkR = (def.atkRange || 1.5) * cs;
 
-      // 1) 交战：身边 1.5 格内最近的敌人（任意方向、任意路径）
+      // 出手前必须「完全进框」：武者已与所在格中心对齐站稳（不在两格边界线上）。
+      // 否则敌人虽进入攻击距离，武者仍站在线上隔空挥刀 —— 先把步子走稳进框，再开打。
+      const stoodPt = cellCenter(s.col, s.row);
+      const stoodIn = Math.hypot(s.x - stoodPt.x, s.y - stoodPt.y) <= cs * 0.06;
+
+      // 1) 交战：完全进框后，攻击距离内最近的敌人（任意方向、任意路径）
       let target = null, bestD = Infinity;
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const d = Math.hypot(e.x - s.x, e.y - s.y);
-        if (d <= cs * 1.5 && d < bestD) { bestD = d; target = e; }
+      if (stoodIn) {
+        for (const e of enemies) {
+          if (e.dead) continue;
+          const d = Math.hypot(e.x - s.x, e.y - s.y);
+          if (d <= atkR && d < bestD) { bestD = d; target = e; }
+        }
       }
       if (target) {
         s.cd -= dt;
         if (s.cd <= 0) {
-          damageEnemy(target, def.damage * statMul(s.level));
-          gainRage(s, CONFIG.rage.perAttack);
-          s.cd = def.attackInterval;
-          s.animDur = Math.max(0.18, Math.min(0.34, def.attackInterval * 0.6));
+          s.cd = effInterval(def);
+          s.animDur = Math.max(0.18, Math.min(0.34, effInterval(def) * 0.6));
           s.animT = s.animDur;
           s.animDir = Math.atan2(target.y - s.y, target.x - s.x);
-          addSlash(s.x, s.y, s.animDir, def.hero ? "#ffd700" : "#ffffff");
-          addSparks(target.x, target.y, 3, "#ffffff", 90);
-          if (def.hero) addShake(0.08, 1);
+          // 伤害延迟至挥击命中帧结算（与武器轨迹、身体突进峰值同步）
+          const hp = HIT_P[def.weapon] !== undefined ? HIT_P[def.weapon] : 0.35;
+          scheduleHit(s, target, effDmg(def, s.level), s.animDur * hp,
+            { dir: s.animDir });
         }
         continue; // 交战距离内保持原位
       }
 
-      // 2) 追击：锚点圈（engage 格）内最近的敌人 → 沿路径格逐格逼近，不踩草地
+      // 小兵不追击，站桩防守：只打攻击距离内敌人，绝不自行移动（仅武将出击走追击逻辑）
+      if (!def.hero) continue;
+
+      // 2) 追击：驻守格锚点圈（engage 格）内的敌人 → 沿路径格逐格逼近，不踩草地
+      //    判据与橙色虚线标注一致：敌人进入 engage 圈才出动，杜绝“寻敌范围比标注大”
       const engage = def.engage || 2;
       const reach = engage * cs;
       let far = null, bestFar = Infinity;
       for (const e of enemies) {
         if (e.dead) continue;
         const d = Math.hypot(e.x - homePt.x, e.y - homePt.y);
-        if (d <= reach + cs * 1.5 && d < bestFar) { bestFar = d; far = e; }
+        if (d <= reach && d < bestFar) { bestFar = d; far = e; }
       }
 
       // 目标格：锚点圈内的路径格中距敌人最近的一格（无敌可寻时 = 驻守格，即回位）
@@ -965,11 +1365,12 @@
             const step = (def.moveSpeed || 3) * cs * dt;
             const nx = s.x + (dx / dist) * Math.min(step, dist);
             const ny = s.y + (dy / dist) * Math.min(step, dist);
-            // 与其他武将保持间距，不互相重叠
+            // 软碰撞：允许武将贴紧（间距 ≥ 0.42 格即可，身体半径 0.3 格，轻微靠拢但基本不重叠），
+            // 使后排能挤进前排身后进入攻击距离出伤，避免相邻近战互相挡路导致后排打不到敌人、攒不满怒气
             let blocked = false;
             for (const o of soldiers) {
               if (o === s || o.dead) continue;
-              if (Math.hypot(o.x - nx, o.y - ny) < cs * 0.6) { blocked = true; break; }
+              if (Math.hypot(o.x - nx, o.y - ny) < cs * 0.42) { blocked = true; break; }
             }
             if (!blocked) { s.x = nx; s.y = ny; }
           }
@@ -1065,10 +1466,14 @@
       const e = enemies[i];
       if (e.dead) continue;
 
-      // 状态：眩晕 / 易伤 / 减速 / 灼烧 / 受击闪白 / 行走相位
+      // 状态：眩晕 / 易伤 / 减速 / 灼烧 / 受击闪白 / 行走相位 + Boss 技能状态
       if (e.stunTime > 0) e.stunTime -= dt;
       if (e.ampTime > 0) e.ampTime -= dt;
       if (e.slowTime > 0) e.slowTime -= dt;
+      if (e.shieldTime > 0) e.shieldTime -= dt;         // Boss 护盾剩余
+      if (e.buffAtkTime > 0 && (e.buffAtkTime -= dt) <= 0) { e.buffAtkTime = 0; e.buffAtkMul = 0; }
+      if (e.buffSpdTime > 0 && (e.buffSpdTime -= dt) <= 0) { e.buffSpdTime = 0; e.buffSpdMul = 0; }
+      if (e.isBoss && e.skillCd != null) e.skillCd -= dt;   // Boss 技能冷却
       if (e.dotTime > 0) {
         e.dotTime -= dt;
         e.dotTimer -= dt;
@@ -1084,29 +1489,42 @@
       // 眩晕中：定身——不移动、不攻击、不入城
       if (e.stunTime > 0) continue;
 
-      // 交战判定：身边 1.5 格内有武将（任意方向，不限同一条路）→ 停下与其交战（与武将寻敌对称）
-      const defs = soldiersNear(e.x, e.y, 1.5);
+      // 交战判定：敌人按自身 attackRange（任意方向）扫描有武将进入 → 停下与其交战；
+      // Boss 沿用武将交互距离（默认 1.5 格）
+      const eRange = e.isBoss ? 1.5 : ((e.def && e.def.attackRange) || CONFIG.enemy.attackRange);
+      const defs = soldiersNear(e.x, e.y, eRange);
       if (defs.length > 0) e.fighting = true;
 
       if (e.fighting) {
+        // Boss 施放技能（冷却结束且配有技能时）
+        if (e.isBoss && e.skillCd != null && e.skillCd <= 0 && e.def && e.def.skill) {
+          castBossSkill(e);
+          e.skillCd = (e.def.skill.cd || 999);
+        }
         e.attackCd -= dt;
         if (defs.length === 0) {
           e.fighting = false;
         } else if (e.attackCd <= 0) {
+          const ed = e.def || CONFIG.enemy;
+          const atkMul = 1 + (e.buffAtkMul || 0);   // 狂暴攻伤倍率
           if (e.isBoss) {
+            const bdmg = (e.def && e.def.damage) || CONFIG.boss.damage;
             for (const d of defs) {
-              d.hp -= CONFIG.boss.damage;
+              d.hp -= bdmg * atkMul;
               d.hitFlash = 0.1;
               gainRage(d, CONFIG.rage.perHurt);
               if (d.hp <= 0) killSoldier(d);
             }
           } else {
-            defs[0].hp -= CONFIG.enemy.damage;
+            defs[0].hp -= (ed.dmg || CONFIG.enemy.damage) * atkMul;
             defs[0].hitFlash = 0.1;
             gainRage(defs[0], CONFIG.rage.perHurt);
             if (defs[0].hp <= 0) killSoldier(defs[0]);
           }
-          e.attackCd = e.isBoss ? CONFIG.boss.attackInterval : CONFIG.enemy.attackInterval;
+          const interval = e.isBoss
+            ? ((e.def && e.def.attackInterval) || CONFIG.boss.attackInterval) / atkMul   // 狂暴攻速提升
+            : (ed.attackInterval || CONFIG.enemy.attackInterval);
+          e.attackCd = interval;
           // 扑向防守单位的突进动作
           e.lungeT = 0.18;
           e.lungeDir = Math.atan2(defs[0].y - e.y, defs[0].x - e.x);
@@ -1120,7 +1538,10 @@
       const dest = cellCenter(next.c, next.r);
       const dx = dest.x - e.x, dy = dest.y - e.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      const spd = (e.slowTime > 0 ? e.slowMul : 1) * (e.isBoss ? CONFIG.boss.speed : CONFIG.enemy.speed);
+      const baseSpd = e.isBoss
+        ? ((e.def && e.def.speed) || CONFIG.boss.speed) * (1 + (e.buffSpdMul || 0))   // Boss 狂暴加移速
+        : waveSpeed * (e.def ? (e.def.speedMul || 1) : CONFIG.enemy.speedMul);
+      const spd = (e.slowTime > 0 ? e.slowMul : 1) * baseSpd * buffs.enemySlow;
       const step = spd * getCellSize() * dt;
       // 行军步伐：每走半格完成一个起伏周期
       e.walkPhase += (step / getCellSize()) * Math.PI;
@@ -1227,35 +1648,72 @@
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
         ctx.fillText(def.short + (b.level > 1 ? b.level : ""), 0, 0);
         ctx.restore();
-        continue;
-      }
-      // 塔：开火后坐压缩（纵向压扁、横向鼓起）
-      let sqx = 1, sqy = 1;
-      const rp = b.recoilT > 0 ? b.recoilT / 0.12 : 0;
-      if (rp > 0) { sqy = 1 - 0.16 * rp; sqx = 1 + 0.08 * rp; }
-      ctx.save();
-      ctx.translate(b.x, b.y);
-      ctx.scale(pop * sqx, pop * sqy);
-      ctx.fillStyle = "rgba(0,0,0,0.10)";
-      ctx.beginPath(); ctx.arc(0, 0, s * 0.42, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = def.color;
-      ctx.fillRect(-s * 0.33, -s * 0.33, s * 0.66, s * 0.66);
-      ctx.strokeStyle = "rgba(20,10,0,0.6)"; ctx.lineWidth = 2;
-      ctx.strokeRect(-s * 0.33, -s * 0.33, s * 0.66, s * 0.66);
-      ctx.fillStyle = "#fff";
-      ctx.font = s * 0.26 + "px KaiTi, serif";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(def.short + (b.level > 1 ? b.level : ""), 0, 0);
-      ctx.restore();
-      // 炮口火光（刚开火的一瞬）
-      if (rp > 0.55) {
-        ctx.globalAlpha = (rp - 0.55) / 0.45 * 0.8;
-        ctx.fillStyle = "#ffe9b0";
-        ctx.beginPath(); ctx.arc(b.x, b.y, s * 0.2 + (1 - rp) * s * 0.18, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1;
       }
     }
   }
+  // 按武器类型绘制武将手持器械（纯程序化，无图片）
+  // o.drawP：弓弦拉距（>0 拉弓搭箭；<0 放弦后弦振）
+  function drawWeapon(c, weapon, w, o) {
+    const r = w * 0.32; // 身体半径
+    const drawP = o ? (o.drawP || 0) : 0;
+    if (weapon === "saber") {
+      // 青龙偃月刀：长杆 + 弯月刀刃 + 红缨
+      c.strokeStyle = "#8a6a3f"; c.lineWidth = w * 0.07; c.lineCap = "round";
+      c.beginPath(); c.moveTo(-r * 0.15, 0); c.lineTo(r * 1.35, 0); c.stroke(); // 刀杆
+      c.fillStyle = "#e8e6e3"; c.strokeStyle = "#b9b6b0"; c.lineWidth = w * 0.02;
+      c.beginPath();
+      c.moveTo(r * 1.2, 0);
+      c.quadraticCurveTo(r * 1.78, -w * 0.1, r * 1.98, -w * 0.32); // 刀背弧至刀尖
+      c.quadraticCurveTo(r * 1.72, -w * 0.16, r * 1.26, -w * 0.05); // 刀刃弧收回
+      c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = "#c0392b"; // 刀杆红缨
+      for (let k = -1; k <= 1; k++) {
+        c.beginPath(); c.moveTo(r * 1.2, 0); c.lineTo(r * 1.08, k * w * 0.06); c.lineTo(r * 1.16, k * w * 0.03); c.closePath(); c.fill();
+      }
+    } else if (weapon === "spear") {
+      // 长枪：枪杆 + 菱形枪尖 + 红缨
+      c.strokeStyle = "#c8a06a"; c.lineWidth = w * 0.06; c.lineCap = "butt";
+      c.beginPath(); c.moveTo(-r * 0.45, 0); c.lineTo(r * 1.45, 0); c.stroke();
+      c.fillStyle = "#e8e6e3"; c.strokeStyle = "#b9b6b0"; c.lineWidth = w * 0.015;
+      c.beginPath(); c.moveTo(r * 1.4, 0); c.lineTo(r * 1.82, -w * 0.045); c.lineTo(r * 1.98, 0); c.lineTo(r * 1.82, w * 0.045); c.closePath(); c.fill(); c.stroke();
+      c.strokeStyle = "#c0392b"; c.lineWidth = w * 0.028; c.lineCap = "round"; // 红缨
+      for (let k = -1; k <= 1; k++) {
+        c.beginPath(); c.moveTo(r * 1.42, 0); c.lineTo(r * 1.26, k * w * 0.07); c.stroke();
+      }
+    } else if (weapon === "bow") {
+      // 长弓：竹弓背 + 弦（拉弓时中点后拉）+ 搭箭
+      const bx = r * 0.5, br = r * 0.78;
+      c.strokeStyle = "#a97b50"; c.lineWidth = w * 0.075; c.lineCap = "round";
+      c.beginPath(); c.arc(bx, 0, br, -1.05, 1.05); c.stroke(); // 弓背
+      const tipX = bx + br * Math.cos(1.05), tipY = br * Math.sin(1.05);
+      const pull = drawP * br * 0.75;
+      c.strokeStyle = "rgba(40,25,10,0.75)"; c.lineWidth = w * 0.022; c.lineCap = "butt";
+      c.beginPath(); c.moveTo(tipX, -tipY); c.lineTo(bx - pull, 0); c.lineTo(tipX, tipY); c.stroke(); // 弦
+      if (drawP > 0.02) { // 拉弓时搭箭
+        c.strokeStyle = "#6d4c2f"; c.lineWidth = w * 0.03; c.lineCap = "round";
+        c.beginPath(); c.moveTo(bx - pull, 0); c.lineTo(bx + br * 0.92, 0); c.stroke();
+        c.fillStyle = "#e8e6e3";
+        c.beginPath(); c.moveTo(bx + br * 0.92, 0); c.lineTo(bx + br * 1.16, -w * 0.035); c.lineTo(bx + br * 1.16, w * 0.035); c.closePath(); c.fill();
+      }
+    } else if (weapon === "fan") {
+      // 羽扇：扇柄 + 扇面 + 扇骨 + 白羽点缀
+      c.strokeStyle = "#8a6a3f"; c.lineWidth = w * 0.05; c.lineCap = "round";
+      c.beginPath(); c.moveTo(r * 0.05, 0); c.lineTo(r * 0.52, 0); c.stroke(); // 扇柄
+      c.fillStyle = "#fdf6e3"; c.strokeStyle = "#c9a86a"; c.lineWidth = w * 0.035;
+      c.beginPath(); c.moveTo(r * 0.5, 0); c.arc(r * 0.5, 0, r * 0.85, -0.95, 0.95); c.closePath(); c.fill(); c.stroke();
+      c.strokeStyle = "#d4a530"; c.lineWidth = w * 0.022; // 扇骨
+      for (let k = -2; k <= 2; k++) {
+        const a = k * 0.32;
+        c.beginPath(); c.moveTo(r * 0.5, 0); c.lineTo(r * 0.5 + r * 0.85 * Math.cos(a), r * 0.85 * Math.sin(a)); c.stroke();
+      }
+      c.fillStyle = "#eef6fd"; // 扇缘白羽
+      for (let k = -1; k <= 1; k++) {
+        const a = k * 0.5;
+        c.beginPath(); c.arc(r * 0.5 + r * 0.78 * Math.cos(a), r * 0.78 * Math.sin(a), w * 0.032, 0, Math.PI * 2); c.fill();
+      }
+    }
+  }
+
   function drawSoldiers() {
     const s = getCellSize();
     for (const sld of soldiers) {
@@ -1265,13 +1723,65 @@
       // ---- 动作合成：待机呼吸 + 攻击突进/后坐 + 受击抖动 + 出生弹出 ----
       const idle = Math.sin(animClock * 2.4 + sld.uid * 1.7) * s * 0.018;
       let ox = 0, oy = idle, sx = 1, sy = 1;
-      if (sld.animT > 0 && sld.animDur > 0) {
+      const isAtk = sld.animT > 0 && sld.animDur > 0;
+      // 武器姿态：挥击角 wAng / 长枪突刺位移 wExt / 弓弦拉距 bowDraw
+      let wAng = null, wExt = 0, bowDraw = 0;
+      const REST = def.weapon ? REST_ANG[def.weapon] : undefined;
+      const hp = def.weapon && HIT_P[def.weapon] !== undefined ? HIT_P[def.weapon] : 0.35;
+      if (isAtk) {
         const p = 1 - sld.animT / sld.animDur;
-        const lunge = Math.sin(p * Math.PI);      // 去-回
-        const dirMul = def.ranged ? -0.55 : 1;    // 远程后坐，近战突刺
-        ox += Math.cos(sld.animDir) * lunge * s * 0.2 * dirMul;
-        oy += Math.sin(sld.animDir) * lunge * s * 0.2 * dirMul;
-        if (def.ranged) { sx = 1 - 0.08 * lunge; sy = 1 + 0.06 * lunge; }
+        // 身体推进在命中帧达到峰值（与出伤同步），随后收势回落
+        let push;
+        if (def.ranged) {
+          // 远程：命中前小幅前倾瞄准，放弦瞬间后坐
+          push = p < hp ? 0.3 * smoothstep(p / hp) : -0.9 * (1 - smoothstep((p - hp) / (1 - hp)));
+        } else {
+          push = p < hp ? smoothstep(p / hp) : 1 - smoothstep((p - hp) / (1 - hp));
+        }
+        const lungeAmp = def.weapon === "saber" ? 0.27 : def.weapon === "spear" ? 0.17 : 0.2;
+        ox += Math.cos(sld.animDir) * push * s * lungeAmp;
+        oy += Math.sin(sld.animDir) * push * s * lungeAmp;
+        if (def.ranged) { const k = Math.max(0, -push); sx = 1 - 0.06 * k; sy = 1 + 0.05 * k; }
+        // ---- 武器挥击轨迹（蓄力 → 命中帧挥至目标 → 收势回垂）----
+        if (def.weapon === "saber" || def.weapon === "fan") {
+          const WIND = def.weapon === "saber" ? -1.45 : -1.1;   // 举兵器过肩
+          const FOL = def.weapon === "saber" ? 0.75 : 0.45;     // 抡出随势角
+          if (p < hp) {
+            const q = easeOutCubic(p / hp);
+            wAng = REST + (sld.animDir + WIND - REST) * q;      // 待机位 → 蓄力位
+          } else {
+            const q = (p - hp) / (1 - hp);
+            if (q < 0.4) wAng = sld.animDir + WIND + (FOL - WIND) * easeOutCubic(q / 0.4); // 抡出扫过目标
+            else {
+              const A = sld.animDir + FOL;
+              wAng = A + (REST - A) * smoothstep((q - 0.4) / 0.6); // 收势回垂（无缝接待机）
+            }
+          }
+        } else if (def.weapon === "spear") {
+          if (p < hp) {
+            const q = p / hp, eo = easeOutCubic(q);
+            wAng = REST + (sld.animDir - REST) * eo;            // 枪身摆正对敌
+            const pull = easeOutCubic(Math.min(1, q / 0.6));     // 先后拉蓄力
+            const thrust = q > 0.6 ? easeOutCubic((q - 0.6) / 0.4) : 0; // 再刺出，命中帧最深
+            wExt = -0.3 * pull + 0.92 * thrust;
+          } else {
+            const q = (p - hp) / (1 - hp), t = smoothstep(q);
+            wAng = sld.animDir * (1 - t) + REST * t + 0.12 * Math.sin(q * Math.PI) * (1 - t); // 收枪回垂
+            wExt = 0.62 * (1 - t);
+          }
+        } else if (def.weapon === "bow") {
+          if (p < hp) {
+            const q = p / hp, eo = easeOutCubic(q);
+            wAng = REST + (sld.animDir - REST) * eo;            // 转身瞄准
+            bowDraw = eo;                                       // 渐进拉弓
+          } else {
+            const q = (p - hp) / (1 - hp), t = smoothstep(q);
+            wAng = sld.animDir * (1 - t) + REST * t;            // 收弓回垂
+            bowDraw = -0.3 * Math.sin(q * Math.PI * 2.5) * (1 - q); // 放弦后弦振
+          }
+        }
+      } else if (def.weapon && REST !== undefined) {
+        wAng = REST + Math.sin(animClock * 1.8 + sld.uid * 2.1) * 0.06; // 待机：武器垂放身侧微晃
       }
       if (sld.hitFlash > 0) {
         const k = Math.min(1, sld.hitFlash / 0.1);
@@ -1318,6 +1828,14 @@
         ctx.beginPath(); ctx.arc(0, 0, s * 0.32, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
       }
+      // 武器：按挥击轨迹（wAng 旋转 / wExt 突刺位移 / bowDraw 弓弦）绘制
+      if (def.weapon && wAng !== null) {
+        ctx.save();
+        ctx.rotate(wAng);
+        if (wExt) ctx.translate(wExt * s, 0);
+        drawWeapon(ctx, def.weapon, s, { drawP: bowDraw });
+        ctx.restore();
+      }
       ctx.restore();
 
       // 技能施放金环
@@ -1356,7 +1874,8 @@
     const s = getCellSize();
     for (const e of enemies) {
       if (e.dead) continue;
-      const r = e.isBoss ? s * CONFIG.boss.radiusMul : s * 0.26;
+      const ed = e.def || CONFIG.enemy;
+      const r = s * ((e.isBoss ? CONFIG.boss : ed).radiusMul || 0.26);
 
       // ---- 动作合成：行军起伏 + 挤压拉伸 + 出生弹出 + 攻击突进 + 受击 ----
       const bobNorm = Math.abs(Math.sin(e.walkPhase));
@@ -1390,21 +1909,33 @@
       ctx.translate(e.x + ox, e.y + oy + bob);
       ctx.scale(pop * sx, pop * sy);
       if (e.stunTime > 0) ctx.rotate(Math.sin(animClock * 6) * 0.13);   // 眩晕晃动
-      ctx.fillStyle = e.isBoss ? CONFIG.boss.color : CONFIG.enemy.color;
+      ctx.fillStyle = e.isBoss ? (e.def && e.def.color || CONFIG.boss.color) : ed.color;
       ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = "rgba(20,10,0,0.6)"; ctx.lineWidth = 2; ctx.stroke();
       if (e.isBoss) {
-        // Boss 金色呼吸光环
+        // Boss 光环：狂暴变红、护盾变青
+        let auraCol = "255,215,0";
+        if (e.buffAtkTime > 0) auraCol = "255,90,60";
+        else if (e.shieldTime > 0) auraCol = "110,255,220";
         const aura = 0.3 + 0.25 * Math.sin(animClock * 3);
-        ctx.strokeStyle = "rgba(255,215,0," + aura.toFixed(3) + ")";
+        ctx.strokeStyle = "rgba(" + auraCol + "," + aura.toFixed(3) + ")";
         ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(0, 0, r * 1.22, 0, Math.PI * 2); ctx.stroke();
+        // 狂暴红色体边 / 护盾青色体边
+        if (e.buffAtkTime > 0) { ctx.strokeStyle = "rgba(255,90,60,0.9)"; ctx.lineWidth = 3; }
+        else if (e.shieldTime > 0) { ctx.strokeStyle = "rgba(110,255,220,0.9)"; ctx.lineWidth = 3; }
         ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
         ctx.fillStyle = "#fff";
-        ctx.font = s * 0.3 + "px KaiTi, serif";
+        ctx.font = "bold " + s * 0.3 + "px KaiTi, serif";
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText("将", 0, 0);
+        ctx.fillText((e.def && e.def.ch) || "将", 0, 0);   // 各 Boss 独有字
+      } else {
+        // 兵种单字：显示在敌人体内
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold " + Math.max(s * 0.3, r * 1.2) + "px KaiTi, serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText((ed.ch || "兵"), 0, r * 0.06);
       }
       if (e.flash > 0) {
         ctx.globalAlpha = Math.min(1, e.flash / 0.1) * 0.7;
@@ -1415,7 +1946,7 @@
       ctx.restore();
 
       if (e.hp < e.maxHp) {
-        const w = e.isBoss ? s * 0.9 : s * 0.56;
+        const w = e.isBoss ? s * 0.9 : s * Math.max(0.5, r / s * 2.0);
         drawHpBar(e.x + ox - w / 2, e.y + oy + bob - r - s * 0.16, w, 5,
           Math.max(0, e.hp / e.maxHp), "#e74c3c");
       }
@@ -1619,7 +2150,7 @@
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       if (e.dead) continue;
-      const r = (e.isBoss ? s * CONFIG.boss.radiusMul : s * 0.26) + 5;
+      const r = (s * ((e.isBoss ? CONFIG.boss : (e.def || CONFIG.enemy)).radiusMul || 0.26)) + 5;
       const dx = e.x - px, dy = e.y - py;
       if (dx * dx + dy * dy <= r * r) return e;
     }
@@ -1661,6 +2192,45 @@
     return lines;
   }
 
+  // 射程指示圈：选中武将时，在脚下绘制可及范围（区分攻击距离与追击距离）
+  function drawHeroRanges(u, def, s) {
+    if (def.kind !== "soldier") return;
+    if (def.ranged) {
+      // 远程：单圈「攻击射程」，实心淡蓝 + 亮蓝描边
+      const r = def.range * s;
+      ctx.fillStyle = "rgba(66,184,255,0.14)";
+      ctx.strokeStyle = "rgba(120,210,255,0.85)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(u.x, u.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.stroke();
+      return;
+    }
+    // 近战：两种圈并显
+    //   1) 攻击距离 —— 以武将当前位置为圆心，实心淡青绿 + 实线（出手即可命中）
+    const ar = (def.atkRange || 1.5) * s;
+    ctx.fillStyle = "rgba(56,220,160,0.16)";
+    ctx.strokeStyle = "rgba(86,235,180,0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(u.x, u.y, ar, 0, Math.PI * 2); ctx.fill();
+    ctx.stroke();
+    // 2) 追击距离 —— 仅武将出击才有（小兵站桩不追击），以驻守格为圆心（追击锚点圈），淡橙红虚线
+    if (def.hero) {
+      const er = (def.engage || 2) * s;
+      const hx = cellCenter(u.homeC, u.homeR).x;
+      const hy = cellCenter(u.homeC, u.homeR).y;
+      ctx.fillStyle = "rgba(255,140,70,0.10)";
+      ctx.strokeStyle = "rgba(255,150,90,0.85)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([9, 6]);
+      ctx.beginPath(); ctx.arc(hx, hy, er, 0, Math.PI * 2); ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 驻守格锚点小标记
+      ctx.fillStyle = "rgba(255,150,90,0.5)";
+      ctx.beginPath(); ctx.arc(hx, hy, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
   // 选中标记：金色/红色虚线旋转圆环
   function drawSelectionMark() {
     if (!selected || !selectionAlive()) return;
@@ -1668,10 +2238,11 @@
     const s = getCellSize();
     let r;
     if (selected.kind === "enemy") {
-      r = (u.isBoss ? s * CONFIG.boss.radiusMul : s * 0.26) + 6;
+      r = (s * ((u.isBoss ? CONFIG.boss : (u.def || CONFIG.enemy)).radiusMul || 0.26)) + 6;
     } else {
       const def = unitDef(u.type);
       r = def.kind === "soldier" ? s * 0.42 : s * 0.48;
+      drawHeroRanges(u, def, s); // 先绘射程圈，选中环叠于其上
     }
     ctx.strokeStyle = selected.kind === "enemy" ? "#ff6b5e" : "#ffd97a";
     ctx.lineWidth = 2;
@@ -1700,40 +2271,35 @@
 
     if (selected.kind === "enemy") {
       const isBoss = !!u.isBoss;
-      name = isBoss ? "敌方将领" : "敌兵";
+      const ed = u.def || CONFIG.enemy;
+      name = isBoss ? (ed.name || "敌方将领") : (ed.name || "敌兵");
       tag = isBoss ? "BOSS" : "敌军";
-      iconColor = isBoss ? CONFIG.boss.color : CONFIG.enemy.color;
-      iconChar = isBoss ? "将" : "兵";
+      iconColor = isBoss ? (ed.color || CONFIG.boss.color) : ed.color;
+      iconChar = isBoss ? ((ed.ch) || "将") : "兵";
       rows.push({ label: "生命", bar: u.hp / u.maxHp, text: Math.ceil(u.hp) + "/" + Math.ceil(u.maxHp) });
-      rows.push({ label: "攻击", value: (isBoss ? CONFIG.boss.damage : CONFIG.enemy.damage) + "（每 " + (isBoss ? CONFIG.boss.attackInterval : CONFIG.enemy.attackInterval) + " 秒）" });
-      rows.push({ label: "赏金", value: (isBoss ? CONFIG.boss.bounty : CONFIG.enemy.bounty) + " 粮草" });
+      rows.push({ label: "攻击", value: (isBoss ? (ed.damage || CONFIG.boss.damage) : ed.dmg) + "（每 " + (isBoss ? (ed.attackInterval || CONFIG.boss.attackInterval) : ed.attackInterval) + " 秒）" });
+      rows.push({ label: "赏金", value: (isBoss ? (ed.bounty || CONFIG.boss.bounty) : ed.bounty) + " 粮草" });
+      if (isBoss && ed.skill) rows.push({ label: "技能", value: skillDesc(ed.skill) });
       if (isBoss) rows.push({ label: "破城", value: "冲入城门扣 10 耐久" });
-      else rows.push({ label: "行军", value: "速度 " + CONFIG.enemy.speed.toFixed(1) + " 格/秒" });
+      else rows.push({ label: "行军", value: "速度 " + (CONFIG.enemy.speed * (ed.speedMul || 1)).toFixed(2) + " ~ " + (CONFIG.enemy.maxSpeed * (ed.speedMul || 1)).toFixed(2) + " 格/秒" });
     } else {
       const def = unitDef(u.type);
       name = def.name;
       lv = u.level;
       iconColor = def.color;
       iconChar = def.short;
-      iconSquare = def.kind === "tower";
       if (def.kind === "soldier") {
-        tag = "武将 · " + (def.ranged ? "远程" : "近战");
+        tag = (def.hero ? "武将 · " : "小兵 · ") + (def.ranged ? "远程" : "近战");
         const mul = statMul(u.level);
         rows.push({ label: "生命", bar: Math.max(0, u.hp / u.maxHp), text: Math.ceil(u.hp) + "/" + Math.ceil(u.maxHp) });
         rows.push({ label: "攻击", value: Math.round(def.damage * mul) + "（每 " + def.attackInterval + " 秒）" });
-        rows.push({ label: "射程", value: def.ranged ? def.range + " 格" : (def.engage || 2) + " 格" });
+        rows.push({ label: "攻击距离", value: (def.ranged ? def.range : (def.atkRange || 1.5)) + " 格" });
+        if (!def.ranged && def.hero) rows.push({ label: "追击半径", value: (def.engage || 2) + " 格" });
         if (def.skill) {
           skill = def.skill;
           rageRatio = Math.max(0, Math.min(1, u.rage / CONFIG.rage.max));
           skillPower = Math.round((skill.damage || 0) * (skill.count || 1) * mul);
         }
-      } else if (def.kind === "tower") {
-        tag = "塔";
-        const mul = statMul(u.level);
-        rows.push({ label: "伤害", value: Math.round(def.damage * mul) + "（每 " + def.cooldown + " 秒）" });
-        rows.push({ label: "射程", value: def.range + " 格" });
-        if (def.splash > 0) rows.push({ label: "特性", value: "溅射 " + def.splash + " 格" });
-        if (def.dotDmg) rows.push({ label: "特性", value: "减速 " + Math.round((1 - def.slowMul) * 100) + "% + 灼烧" });
       } else {
         tag = "辅助";
         rows.push({ label: "产粮", value: "每 " + def.produceInterval + " 秒 +" + def.produce[u.level - 1] + " 粮草" });
@@ -1927,7 +2493,7 @@
     } else {
       ctx.fillRect(cx - s * 0.33, cy - s * 0.33, s * 0.66, s * 0.66);
     }
-    if ((def.kind === "tower" || def.ranged) && def.range) {
+    if (def.ranged && def.range) {
       ctx.beginPath();
       ctx.arc(cx, cy, def.range * s, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(255,255,255,0.7)";
@@ -1998,6 +2564,32 @@
       ctx.fillStyle = "rgba(240,217,160,0.75)";
       ctx.font = "16px KaiTi, serif";
       ctx.fillText("空格 / 「继续」 恢复战斗", 0, 76);
+      ctx.restore();
+    }
+    // 主动技能瞄准：十字准星 + 作用半径圈
+    if (casting && phase === "battle" && mouse.inside) {
+      const cs = getCellSize();
+      const meta = activeCfg(casting.id) || {};
+      const rad = (meta.radius || 2) * cs;
+      ctx.save();
+      ctx.translate(mouse.x, mouse.y);
+      ctx.strokeStyle = "rgba(255,220,120,0.9)";
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(255,220,120,0.14)";
+      ctx.beginPath(); ctx.arc(0, 0, rad, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(255,220,120,0.95)";
+      ctx.lineWidth = 2;
+      const c = 8;
+      [{ a: 0 }, { a: Math.PI / 2 }, { a: Math.PI }, { a: Math.PI * 1.5 }].forEach(function (d) {
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(d.a) * (c), Math.sin(d.a) * (c));
+        ctx.lineTo(Math.cos(d.a) * (c + 14), Math.sin(d.a) * (c + 14));
+        ctx.stroke();
+      });
+      ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
     if (shakeTime > 0) ctx.restore();
@@ -2186,7 +2778,12 @@
     waveBanner = null;
     fxDeaths = [];
     fxParts = [];
+    pendingHits = [];
     inventory = new Array(CONFIG.inventorySize).fill(null);
+    cardLevels = {};
+    activeCds = {};
+    buffs = { atkIntervalMul: 1, dmgMul: 1, hpMul: 1, bountyMul: 1, enemySlow: 1, splashFactor: 0, splashRange: 1.2, vamp: 0 };
+    casting = null;
     diffKey = selDiff ? selDiff.value : "normal";
     const dc = diffConf();
     gateHp = dc.gateHp;
@@ -2259,6 +2856,12 @@
   canvas.addEventListener("mousedown", function (e) {
     if (!activePhase() || drag) return;
     const pt = canvasPointFromEvent(e);
+    // 主动技能施法瞄准中：点任意战场坐标即释放
+    if (casting) {
+      resolveCast(pt.x, pt.y);
+      e.preventDefault();
+      return;
+    }
     const cell = cellFromPoint(pt.x, pt.y);
     if (!cell) return;
     const u = grabUnitAt(cell.c, cell.r);
@@ -2273,7 +2876,7 @@
     if (drag) performDrop(e.clientX, e.clientY);
   });
   window.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { clearDrag(); selected = null; }
+    if (e.key === "Escape") { clearDrag(); selected = null; cancelCast(); closeCardModal(); }
     // 空格：战斗中快捷暂停/继续
     if (e.key === " " && (phase === "battle" || phase === "between") && !e.repeat) {
       e.preventDefault();
@@ -2285,13 +2888,15 @@
     e.preventDefault();
     clearDrag();
     selected = null;
+    cancelCast();
   });
 
   // ---------- 自适应缩放 ----------
   function applyFitZoom() {
     document.documentElement.style.zoom = "1";
+    const designW = Math.max(document.body.scrollWidth || 960, 960);
     const designH = document.body.scrollHeight || 900;
-    const sx = (window.innerWidth - 8) / 960;
+    const sx = (window.innerWidth - 8) / designW;
     const sy = (window.innerHeight - 8) / designH;
     const s = Math.max(0.4, Math.min(1, sx, sy));
     document.documentElement.style.zoom = String(s);
@@ -2313,6 +2918,8 @@
 
   renderInventory();
   refreshShop();
+  renderCardBar();
+  hookCardModal();
 
   if (query.get("diff")) { selDiff.value = query.get("diff"); }
   const queryLevel = parseInt(query.get("level") || "1", 10);
@@ -2326,12 +2933,12 @@
     renderHome(); // 首页初始渲染（徽章 / 锁定态）
   }
 
-  // 自动化测试阵容：多种塔 + 士兵 + 武将
+  // 自动化测试阵容：多种小兵 + 农民 + 武将
   if (query.has("autodef")) {
-    addUnitToField("tower.archer", 1, 1, 3);
+    addUnitToField("soldier.heavy", 1, 1, 3);
     addUnitToField("farmer.farmer", 1, 2, 3);
-    addUnitToField("tower.catapult", 1, 3, 3);
-    addUnitToField("tower.fire", 1, 1, 2);
+    addUnitToField("soldier.archer", 1, 3, 3);
+    addUnitToField("soldier.pike", 1, 1, 2);
     addUnitToField("hero.guan", 1, 4, 4);
     addUnitToField("hero.zhaoyun", 1, 4, 2);
     addUnitToField("hero.huangzhong", 1, 7, 1);
