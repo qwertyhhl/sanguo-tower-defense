@@ -149,12 +149,12 @@ const CONFIG = {
   ],
 
   gateHp: 20,
-  startGrain: 1000,
+  startGrain: 500,
 
   difficulties: {
-    easy:   { name: "简单", startGrain: 1000, gateHp: 25, hpMul: 0.7,  countMul: 0.8 },
-    normal: { name: "普通", startGrain: 1000, gateHp: 20, hpMul: 1,    countMul: 1 },
-    hard:   { name: "困难", startGrain: 1000, gateHp: 18, hpMul: 1.32, countMul: 1.3 }
+    easy:   { name: "简单", startGrain: 550, gateHp: 25, hpMul: 0.7,  countMul: 0.8 },
+    normal: { name: "普通", startGrain: 500, gateHp: 20, hpMul: 1,    countMul: 1 },
+    hard:   { name: "困难", startGrain: 420, gateHp: 18, hpMul: 1.32, countMul: 1.3 }
   },
 
   inventorySize: 5,
@@ -166,7 +166,7 @@ const CONFIG = {
   // 商店：随机上架（己方小兵 / 农民 / 武将）
   shop: {
     size: 5,
-    refreshCost: 10,
+    refreshCost: 20,
     pool: [
       { type: "soldier.pike", weight: 3 },
       { type: "soldier.archer", weight: 2 },
@@ -184,7 +184,11 @@ const CONFIG = {
     prepTime: 0,          // 波间不停顿：上一波清场后立刻开下一波
     baseCount: 8,         // 每波基础士兵数量（较原先 4 提升一倍，敌潮更厚）
     countPerWave: 3,      // 每波新增数量（逐波加厚）
-    hpGrowth: 0.25,
+    // 敌军数值随波次成长（线性，作用于基础值；难度 hpMul 再整体倍率）：
+    //   hpGrowth   —— 敌军血量每波成长 0.28/波（原 0.4，实际偏难，已回调温和）
+    //   atkGrowth  —— 敌军攻击力每波成长 0.25/波（保留伤害成长让后期能啃动，但调低）
+    hpGrowth: 0.28,
+    atkGrowth: 0.25,
     bonusBase: 20,
     bonusPerWave: 5,
     bossEvery: 5
@@ -218,16 +222,20 @@ const CONFIG = {
 
   // 敌军 Boss 表：按登场回合轮换（第 5 波出第 1 个，之后每 bossEvery 波换一个，循环）。
   // skill 参数含义见 castBossSkill()：
-  //   summon 召唤 / shield 护盾+回血 / enrage 狂暴+践踏 / fury 全能（召唤+狂暴+践踏）
+  //   summon 召唤 / shield 护盾（dmgReduce 减伤率，默认全免伤）+回血
+  //   enrage 狂暴+践踏 / fury 全能（召唤+狂暴+践踏）
+  // 说明：践踏伤害、回血等「固定数值」技能按 Boss 随波次成长系数缩放，后期不掉档。
   bosses: [
     { name: "山贼头目·张梁", ch: "梁", hp: 1500, speed: 0.9, damage: 25, attackInterval: 1.6, bounty: 100, color: "#c0392b",  radiusMul: 0.42,
       skill: { id: "summon", cd: 9, num: 3 } },
     { name: "黄巾力士·管亥", ch: "亥", hp: 2000, speed: 0.85, damage: 30, attackInterval: 1.5, bounty: 120, color: "#e67e22", radiusMul: 0.45,
-      skill: { id: "shield", cd: 12, dur: 5, heal: 200 } },
+      // 平衡：由「全免伤」改为「护盾期间受击 -70%」，持续时间收紧，避免持续输出阵容被完美停顿
+      skill: { id: "shield", cd: 12, dur: 4, dmgReduce: 0.7, heal: 200 } },
     { name: "西凉悍将·华雄", ch: "雄", hp: 2600, speed: 1.0, damage: 28, attackInterval: 1.2, bounty: 140, color: "#8e44ad", radiusMul: 0.46,
       skill: { id: "enrage", cd: 11, dur: 6, atkMul: 1.6, spdMul: 1.4, stomp: true, range: 2.0, stompDmg: 30 } },
-    { name: "无双战神·吕布", ch: "吕", hp: 3400, speed: 1.1, damage: 36, attackInterval: 1.0, bounty: 180, color: "#d63031", radiusMul: 0.5,
-      skill: { id: "fury", cd: 10, dur: 5, summon: 2, atkMul: 1.5, stomp: true, range: 2.2, stompDmg: 40 } }
+    { name: "无双战神·吕布", ch: "吕", hp: 3200, speed: 1.1, damage: 34, attackInterval: 1.15, bounty: 180, color: "#d63031", radiusMul: 0.5,
+      // 平衡：平滑与华雄的断层（原 DPS 36/1.0 过高），血量 3400→3200、践踏 40→36
+      skill: { id: "fury", cd: 10, dur: 5, summon: 2, atkMul: 1.5, stomp: true, range: 2.2, stompDmg: 36 } }
   ],
 
   // 己方小兵：商店购买、放路上、参与 3 张合成升星（与武将同机制，无技能、纯数值）
@@ -266,6 +274,10 @@ const CONFIG = {
     //   ★1＝基础值，每升1★再乘 STAR_BOOST 倍（★2＝×1.6，★3＝×2.56）。
     //   数值只在升星时提升，可按喜好自行调整 STAR_BOOST。
     starBoost: 1.6,
+    // 满阶(★3)溢出增强：★3 封顶后，每额外多持 1 张★3 卡，效果权重 ×(1+starOverflow)。
+    //   ★3×1＝×starBoost²（如 1.6²＝2.56）；★3×2＝×2.56×(1.15)；★3×3＝×2.56×(1.3)…
+    //   设 0 则禁用溢出（多余卡只增加显示张数不再增强）。
+    starOverflow: 0.15,
     passive: [
       { id: "atkspeed", name: "如虎添翼", short: "速", desc: "全军攻速 +25%",
         color: "#e67e22", weight: 8, atkIntervalMul: 0.8 },
@@ -273,24 +285,14 @@ const CONFIG = {
         color: "#c0392b", weight: 8, dmgMul: 1.25 },
       { id: "hp", name: "铜墙铁壁", short: "甲", desc: "全军生命上限 +25%（含已有单位）",
         color: "#2980b9", weight: 7, hpMul: 1.25 },
-      { id: "splash", name: "横扫千军", short: "溅", desc: "全军攻击附带 15% 溅射",
-        color: "#8e44ad", weight: 5, splashFactor: 0.15, splashRange: 1.2 },
       { id: "vamp", name: "噬血成性", short: "嗜", desc: "全军攻击吸血 15%",
         color: "#e74c3c", weight: 5, vamp: 0.1 },
       { id: "bounty", name: "广积粮", short: "粮", desc: "击杀赏金 +25%",
-        color: "#f1c40f", weight: 4, bountyMul: 1.25 },
-      { id: "slowenemy", name: "陷阵寒霜", short: "寒", desc: "敌军全场减速 15%",
-        color: "#5dade2", weight: 4, enemySlow: 0.85 }
+        color: "#f1c40f", weight: 4, bountyMul: 1.25 }
     ],
     active: [
       { id: "thunder", name: "落雷天罚", short: "雷", desc: "目标 2 格内敌军受 200 伤害并眩晕 1.5 秒",
         color: "#9b59b6", cd: 20, radius: 2, dmg: 200, stun: 1.5 },
-      { id: "rain", name: "万箭齐发", short: "箭", desc: "目标点 4 格范围敌军各受 80 伤害",
-        color: "#d35400", cd: 18, radius: 4, dmg: 80 },
-      { id: "freeze", name: "定军山", short: "定", desc: "全场敌军减速 50%，持续 4 秒",
-        color: "#3498db", cd: 28, slowMul: 0.5, slowDur: 4 },
-      { id: "healwall", name: "甘泉琼浆", short: "愈", desc: "全队立即回复 200 点生命",
-        color: "#2ecc71", cd: 25, heal: 200 },
       { id: "grainfest", name: "五谷丰登", short: "丰", desc: "立即获得 120 粮草",
         color: "#f39c12", cd: 30, grain: 120 }
     ]

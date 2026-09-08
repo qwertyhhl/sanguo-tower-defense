@@ -16,6 +16,7 @@
   let waveBossPending = false;
   let waveSpawnTimer = 0;
   let waveHpMul = 1;
+  let waveAtkMul = 1;   // 本波小兵攻击力倍率（随波次成长，避免后期打不动高星武将）
   let waveSpeed = CONFIG.enemy.speed; // 本波小兵速度（随波次递增，封顶 maxSpeed）
   let prepTimer = 0;
   let paused = false;
@@ -154,7 +155,21 @@
   // 数值只在升星时提升（不随持有张数累加），倍数可在配置 starBoost 自行调整。
   const STAR_BOOST = (SC.starBoost != null) ? SC.starBoost : 2.0;
   function starWeight(star) { return Math.pow(STAR_BOOST, star - 1); }
-  function cardStarWeight(id) { return starWeight(Math.max(1, cardTopLevel(id))); }
+  // 满阶(★3)溢出增强：★3 封顶后每额外多持 1 张★3，权重 ×(1+starOverflow)。
+  // 设 0 或负则禁用溢出。权重越高，被动累乘/累加、主动技能数值越强。
+  const STAR_OVERFLOW = (SC.starOverflow != null) ? Math.max(0, SC.starOverflow) : 0.15;
+  function cardStarWeight(id) {
+    const l = cardLevelsOf(id);
+    const top = Math.max(1, cardTopLevel(id));
+    let w = starWeight(top);
+    if (top >= 3 && STAR_OVERFLOW > 0 && l[3] > 1) w *= 1 + STAR_OVERFLOW * (l[3] - 1);
+    return w;
+  }
+  // 是否处于满阶溢出增强（★3 且 ≥2 张）
+  function starOverflowActive(id) {
+    const l = cardLevelsOf(id);
+    return l[3] > 1 && STAR_OVERFLOW > 0;
+  }
   // 被动卡当前星的数值（用于详情/提示展示）
   function cardEffectText(c) {
     if (!c) return "";
@@ -221,6 +236,7 @@
     renderCardBar();
     const c = pc || activeCfg(id);
     if (mergedUp) setHint("技能升阶：" + (c ? c.name : "？") + " → ★" + cardTopLevel(id) + "（效果提升）");
+    else if (starOverflowActive(id)) setHint("技能溢出：" + (c ? c.name : "？") + " ★3 增强至 " + cardEffectText(c));
     else setHint("获得技能：" + (c ? c.name : "？") + (c && pc ? "：" + cardEffectText(c) : ""));
   }
   // 渲染右侧两列卡片：主动列在前，被动列在后
@@ -255,18 +271,22 @@
     const lv = cardLevelsOf(c.id);
     const tiers = [];
     for (let L = 3; L >= 1; L--) if (lv[L] > 0) tiers.push({ L: L, n: lv[L] });
-    let mainHtml = "×0", lowHtml = "";
+    let mainHtml = "×0", lowHtml = "", ofHtml = "";
     if (tiers.length) {
       mainHtml = "★" + tiers[0].L + "×" + tiers[0].n;
       if (tiers.length > 1) lowHtml = "+" + tiers.slice(1).map(t => "★" + t.L + "×" + t.n).join("");
+      if (tiers[0].L >= 3 && starOverflowActive(c.id)) ofHtml = "<span class='c-of'>溢</span>";
     }
     d.innerHTML = "<span class='c-short' style='color:" + c.color + "'>" + c.short +
-      "<span class='c-count'>" + mainHtml + "</span>" +
+      "<span class='c-count' style='position:relative'>" + mainHtml + ofHtml + "</span>" +
       (lowHtml ? "<span class='c-low'>" + lowHtml + "</span>" : "") + "</span>" +
       "<span class='c-name'>" + c.name + "</span>" +
       (isActive && cd > 0 ? "<span class='c-cd'>" + Math.ceil(cd) + "</span>" : "");
-    // 点击卡片 → 查看详情
-    d.addEventListener("click", function () { openCardDetail(c.id); });
+    // 点击卡片 → 查看详情（主动技冷却中不可点：避免误触，也无需查看）
+    d.addEventListener("click", function () {
+      if (isActive && cd > 0) { setHint("该技能冷却中，无法查看"); return; }
+      openCardDetail(c.id);
+    });
     return d;
   }
 
@@ -307,12 +327,14 @@
     // 被动显示当前实际效果数值（随升阶提升）；主动显示技能描述
     cmDesc.textContent = pc ? ("当前效果：" + cardEffectText(c)) : c.desc;
     const atMax = lv >= 3;
+    const of = starOverflowActive(id);
+    const ofTxt = (atMax && of) ? " · 溢出增强 ×" + (1 + STAR_OVERFLOW * (cardLevelsOf(id)[3] - 1)).toFixed(2) : "";
     cmMerge.textContent = pc
-      ? "已拥有 ×" + cnt + " · 当前★" + lv + (atMax
-        ? "（已达最高阶，多余卡片继续增强效果）"
+      ? "已拥有 ×" + cnt + " · 当前★" + lv + ofTxt + (atMax
+        ? (of ? "（多余★3 卡片持续增强当前效果）" : "（已达最高阶，多余★3 卡片继续增强效果）")
         : " · 集齐 3 张★" + lv + " 合成★" + (lv + 1) + "（数量将减少、效果大幅提升）")
-      : "已拥有 ×" + cnt + " · 当前★" + lv + (atMax
-        ? "（已达最高阶）"
+      : "已拥有 ×" + cnt + " · 当前★" + lv + ofTxt + (atMax
+        ? (of ? "（多余★3 卡片持续增强技能威力）" : "（已达最高阶，多余★3 卡片继续增强技能威力）")
         : " · 集齐 3 张★" + lv + " 合成★" + (lv + 1) + "（数量将减少、威力提升）");
     if (cmCastBtn) {
       cmCastBtn.style.display = ac ? "block" : "none";
@@ -332,15 +354,14 @@
     if (!casting) { renderCardBar(); return; }
     const meta = activeCfg(casting.id);
     if (!meta) { casting = null; renderCardBar(); return; }
-    const k = starWeight(casting.level); // 主动技能伤害/数值按星级放大（同 starBoost 可配置）
+    const k = cardStarWeight(casting.id); // 主动技能数值按星级放大（含满阶溢出，同 STAR_BOOST/starOverflow）
     const cs = getCellSize();
     const _rad = (meta.radius || 2) * cs;
     const s = Math.min(1, Math.max(0.28, _rad));
     addExplosion(px, py, s, 0.4);
     if (window.SFX) SFX.play("boom");
     switch (meta.id) {
-      case "thunder":
-      case "rain": {
+      case "thunder": {
         const r2 = _rad;
         for (const e of enemies) {
           if (e.dead) continue;
@@ -352,13 +373,6 @@
         }
         break;
       }
-      case "freeze":
-        for (const e of enemies) { if (!e.dead) applySlow(e, meta.slowMul, meta.slowDur); }
-        setHint("全场敌军减速 " + Math.round((1 - meta.slowMul) * 100) + "%");
-        break;
-      case "healwall":
-        for (const u of soldiers) { if (!u.dead) { u.hp = Math.min(u.maxHp, u.hp + (meta.heal || 0) * k); addFloat(u.x, u.y - cs * 0.4, "+" + Math.round((meta.heal || 0) * k), "#7dffb0", 0.16, 0.6); } }
-        break;
       case "grainfest":
         grain += Math.round((meta.grain || 0) * k);
         addFloat(px, py, "+" + Math.round((meta.grain || 0) * k) + "粮", "#ffd700", 0.22, 0.8);
@@ -551,7 +565,7 @@
 
   function updateHud() {
     hudWave.textContent = isEndlessLevel() ? waveIndex + "/∞" : waveIndex + "/" + CONFIG.waves.total;
-    hudGrain.textContent = grain;
+    hudGrain.textContent = Math.floor(grain);
     hudPop.textContent = fieldCount() + "/" + CONFIG.popCap;
 
     let text = "准备中";
@@ -575,7 +589,7 @@
     btnPause.classList.toggle("active", paused);
     btnSpeed.textContent = "速度 ×" + speed;
 
-    grainBoxVal.textContent = grain;
+    grainBoxVal.textContent = Math.floor(grain);
 
     syncShopButtons(); // 粮草/背包变化时同步商店购买按钮可用态
   }
@@ -978,11 +992,12 @@
       const list = (CONFIG.bosses && CONFIG.bosses.length) ? CONFIG.bosses : [CONFIG.boss];
       const chosen = list[Math.floor(((waveIndex - 1) / (CONFIG.waves.bossEvery || 5))) % list.length];
       const bd = Object.assign({}, CONFIG.boss, chosen);   // 兜底合并默认 Boss 字段
-      const scale = 1 + 0.1 * (waveIndex - 1);
+      // 血量随波次成长系数 0.16/波：比小兵(0.25/波)略缓，仍保证后期 Boss 的血量不落伍
+      const scale = 1 + 0.16 * (waveIndex - 1);
       enemies.push({
         path: p, at: 0, x: jx, y: jy,
         hp: bd.hp * scale, maxHp: bd.hp * scale,
-        isBoss: true, def: bd,
+        isBoss: true, def: bd, bsc: scale,   // bsc：波次成长系数，供技能固定数值按波次缩放
         fighting: false, attackCd: 0, dead: false, flash: 0,
         stunTime: 0, ampTime: 0, ampMul: 1,
         // 技能状态
@@ -1011,7 +1026,7 @@
     const cd = sk.cd ? sk.cd + " 秒" : "";
     switch (sk.id) {
       case "summon": return "召唤小兵 ×" + (sk.num || 3) + "（每 " + cd + "）";
-      case "shield": return "护盾免疫 + 回血 " + (sk.heal || 0) + "（" + (sk.dur || 5) + " 秒 / " + cd + "）";
+      case "shield": return "护盾减伤 " + Math.round(((sk.dmgReduce != null ? sk.dmgReduce : 1)) * 100) + "% + 回血 " + (sk.heal || 0) + "（" + (sk.dur || 5) + " 秒 / " + cd + "）";
       case "enrage": return "狂暴攻速" + (sk.atkMul || 1.5) + "×" + (sk.spdMul || 1.3) + "× + 践踏" + (sk.range || 2) + "格（每 " + cd + "）";
       case "fury": return "狂暴 + 践踏 + 召唤 ×" + (sk.summon || 2) + "（每 " + cd + "）";
       default: return "";
@@ -1034,11 +1049,12 @@
       for (let k = 0; k < n; k++) spawnEnemy(false);
       if (window.SFX) SFX.play("alarm");
     } else if (sk.id === "shield") {
-      // 护盾 + 回血：一段时间内免疫伤害，并回一口血
+      // 护盾 + 回血：一段时间内大幅减伤（dmgReduce，默认全免伤），并回一口血（按波次系数缩放）
       e.shieldTime = sk.dur || 5;
       e.shieldMax = e.shieldTime;
-      if (sk.heal) e.hp = Math.min(e.maxHp, e.hp + sk.heal);
-      addFloat(e.x, e.y - cs, "护盾 +" + (sk.heal || 0), "#8efff0", 0.5, 1);
+      const heal = Math.round((sk.heal || 0) * (e.bsc || 1));
+      if (heal) e.hp = Math.min(e.maxHp, e.hp + heal);
+      addFloat(e.x, e.y - cs, "护盾 +" + heal, "#8efff0", 0.5, 1);
     } else if (sk.id === "enrage" || sk.id === "fury") {
       // 狂暴：提升攻速与移速
       e.buffAtkMul = sk.atkMul || 1.5; e.buffAtkTime = sk.dur || 5;
@@ -1053,7 +1069,7 @@
   // Boss 践踏：对周围 range 内所有武将造成一次 AOE 伤害（不是普通攻击的单个目标）
   function stomp(e, sk) {
     const r = (sk.range || 2) * getCellSize();
-    const dmg = sk.stompDmg || 30;
+    const dmg = Math.round((sk.stompDmg || 30) * (e.bsc || 1)); // 践踏伤害按波次成长缩放，后期不掉档
     addShake(0.2, 2);
     addSparks(e.x, e.y, 14, "#ff6b3d", 180);
     for (let i = soldiers.length - 1; i >= 0; i--) {
@@ -1081,10 +1097,13 @@
   }
   function damageEnemy(e, dmg) {
     if (e.dead) return;
-    if (e.shieldTime > 0) {                       // Boss 护盾：期间免疫伤害
+    if (e.shieldTime > 0) {                       // Boss 护盾：期间大幅减伤（dmgReduce，默认全免伤）
       e.shieldTime -= 0.02;                       // 每击略削护盾（视觉反馈）
-      addFloat(e.x, e.y - getCellSize() * 0.5, "格挡", "#8efff0", 0.18, 0.5);
-      return;
+      const sk = (e.def && e.def.skill) || {};
+      const reduc = (sk.dmgReduce != null) ? sk.dmgReduce : 0;
+      if (reduc <= 0) { addFloat(e.x, e.y - getCellSize() * 0.5, "格挡", "#8efff0", 0.18, 0.5); return; }
+      dmg *= (1 - reduc);
+      if (dmg > 0) addFloat(e.x, e.y - getCellSize() * 0.5, "格挡 " + Math.round(dmg), "#8efff0", 0.18, 0.5);
     }
     if (e.ampTime > 0) dmg *= (e.ampMul || 1);   // 易伤：伤害加深
     e.hp -= dmg;
@@ -1094,7 +1113,7 @@
       e.dead = true;
       const d = e.def || CONFIG.enemy;
       const bounty = (e.isBoss ? (d.bounty || CONFIG.boss.bounty) : d.bounty) * buffs.bountyMul;
-      grain += bounty;
+      grain += Math.round(bounty);   // 粮草取整
       addFloat(e.x, e.y, "+" + Math.round(bounty) + "粮", "#ffd700", 0.24, 0.8);
       const cs = getCellSize();
       addDeathFx(e.x, e.y, cs * ((e.isBoss ? d : d).radiusMul || 0.26),
@@ -1158,6 +1177,7 @@
     if (waveBossPending) waveToSpawn += 1;
     waveSpawnTimer = 0.3;
     waveHpMul = (1 + CONFIG.waves.hpGrowth * (n - 1)) * diffConf().hpMul;
+    waveAtkMul = (1 + (CONFIG.waves.atkGrowth || 0) * (n - 1)) * diffConf().hpMul; // 伤害随波次成长
     // 小兵速度前期慢、随波次加快，达到 maxSpeed 后封顶
     waveSpeed = Math.min(CONFIG.enemy.speed + (CONFIG.enemy.speedPerWave || 0) * (n - 1), CONFIG.enemy.maxSpeed || CONFIG.enemy.speed);
     announce("第 " + n + " 波 · 来袭", "#ff8c6a");
@@ -1516,7 +1536,7 @@
               if (d.hp <= 0) killSoldier(d);
             }
           } else {
-            defs[0].hp -= (ed.dmg || CONFIG.enemy.damage) * atkMul;
+            defs[0].hp -= (ed.dmg || CONFIG.enemy.damage) * atkMul * waveAtkMul; // 小兵伤害随波次成长
             defs[0].hitFlash = 0.1;
             gainRage(defs[0], CONFIG.rage.perHurt);
             if (defs[0].hp <= 0) killSoldier(defs[0]);
@@ -2796,6 +2816,7 @@
     selected = null;
     renderInventory();
     refreshShop(); // 进入新关卡时重新上货（下一关/重开本关）
+    renderCardBar(); // 重置卡牌后立即刷新技能栏，避免残留上一关旧卡片
     updateHud();
   }
 
@@ -2825,7 +2846,7 @@
   });
   btnRefresh.addEventListener("click", function () {
     if (phase === "over" || phase === "win") { setHint("本局已结束，请先开启下一局"); return; }
-    if (grain < CONFIG.shop.refreshCost) { setHint("粮草不足，刷不起商店（10 粮草/次）"); return; }
+    if (grain < CONFIG.shop.refreshCost) { setHint("粮草不足，刷不起商店（" + CONFIG.shop.refreshCost + " 粮草/次）"); return; }
     grain -= CONFIG.shop.refreshCost;
     refreshShop();
     updateHud();

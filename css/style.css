@@ -638,6 +638,23 @@ button:focus-visible, select:focus-visible {
   padding: 0 4px;
   color: #fff;
 }
+/* 满阶溢出标志：★3 且有多余卡片持续增强时，在主徽后追加金色“溢”字 */
+.card-chip .c-of {
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 10px;
+  line-height: 1;
+  color: #fff;
+  background: #d4880f;
+  border-radius: 4px;
+  padding: 1px 3px;
+  box-shadow: 0 0 6px rgba(212,136,15,.9);
+  animation: cOfPulse 1.4s ease-in-out infinite;
+}
+@keyframes cOfPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(212,136,15,.6); }
+  50% { box-shadow: 0 0 9px rgba(255,200,60,1); }
+}
 /* 低星残余徽标：分档显示时放置于左上角，灰色描边以示优先级低于主徽 */
 .card-chip .c-low {
   position: absolute; top: -4px; left: -2px;
